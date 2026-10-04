@@ -85,3 +85,19 @@ button {
     transform: translateX(220%);
   }
 }
+/* Dashboard scrollbar */
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Dashboard selection */
+
+.dashboard-shell ::selection {
+  background: #d4af37;
+  color: #080808;
+}

@@ -161,8 +161,28 @@ export default function FeaturedMenu() {
 
       const result = await response.json();
 
+      if (response.status === 401) {
+        const confirm = await Swal.fire({
+          icon: "info",
+          title: "Login Required",
+          text: "Please login to add dishes to your cart.",
+          background: "#111111",
+          color: "#ffffff",
+          confirmButtonColor: "#d4af37",
+          confirmButtonText: "Login",
+          showCancelButton: true,
+          cancelButtonText: "Continue Browsing",
+        });
+
+        if (confirm.isConfirmed) {
+          window.location.href = "/login";
+        }
+
+        return;
+      }
+
       if (!response.ok) {
-        throw new Error(result.message || "Unable to add this item to cart.");
+        throw new Error(result.message || "Unable to add this item.");
       }
 
       await Swal.fire({
@@ -172,7 +192,13 @@ export default function FeaturedMenu() {
         background: "#111111",
         color: "#ffffff",
         confirmButtonColor: "#d4af37",
-        confirmButtonText: "Great",
+        confirmButtonText: "View Cart",
+        showCancelButton: true,
+        cancelButtonText: "Continue Shopping",
+      }).then((result) => {
+        if (result.isConfirmed) {
+          window.location.href = "/cart";
+        }
       });
     } catch (error) {
       console.error("Add to cart error:", error);
@@ -180,11 +206,10 @@ export default function FeaturedMenu() {
       Swal.fire({
         icon: "error",
         title: "Unable to Add",
-        text: error.message || "Something went wrong while adding this item.",
+        text: error.message || "Something went wrong.",
         background: "#111111",
         color: "#ffffff",
         confirmButtonColor: "#d4af37",
-        confirmButtonText: "Close",
       });
     } finally {
       setAddingItemId(null);

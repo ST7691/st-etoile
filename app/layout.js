@@ -1,8 +1,8 @@
 import "./globals.css";
-import Navbar from "@/components/layout/Navbar";
-import Footer from "@/components/layout/Footer";
-import ScrollButtons from "@/components/ScrollButtons";
+
 import PageLoader from "@/components/PageLoader";
+import AuthSessionProvider from "@/components/providers/SessionProvider";
+import ConditionalLayout from "@/components/layout/ConditionalLayout";
 
 export const metadata = {
   title: "ST Restaurant | Fine Dining",
@@ -14,14 +14,11 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <PageLoader />
-        <Navbar />
+        <AuthSessionProvider>
+          <PageLoader />
 
-        {children}
-
-        <Footer />
-
-        <ScrollButtons />
+          <ConditionalLayout>{children}</ConditionalLayout>
+        </AuthSessionProvider>
       </body>
     </html>
   );

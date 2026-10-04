@@ -6,6 +6,24 @@ datasource db {
   provider = "postgresql"
 }
 
+model User {
+  id       String  @id @default(cuid())
+  name     String?
+  email    String  @unique
+  password String?
+  phone    String?
+  image    String?
+  role     String  @default("CUSTOMER")
+
+  cart         Cart?
+  orders       Order[]
+  reservations Reservation[]
+  reviews      Review[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Category {
   id          String  @id @default(cuid())
   name        String
@@ -25,22 +43,32 @@ model MenuItem {
   slug        String  @unique
   description String?
   price       Float
+  oldPrice    Float?
   image       String?
+  rating      Float   @default(5)
   available   Boolean @default(true)
   featured    Boolean @default(false)
 
   categoryId String
   category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
-  cartItems CartItem[]
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+  reviews    Review[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([featured])
+  @@index([available])
 }
 
 model Cart {
-  id        String @id @default(cuid())
-  sessionId String @unique
+  id     String @id @default(cuid())
+  userId String @unique
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   items CartItem[]
 
@@ -62,4 +90,123 @@ model CartItem {
   updatedAt DateTime @updatedAt
 
   @@unique([cartId, menuItemId])
+}
+
+model DeliveryAddress {
+  id           String  @id @default(cuid())
+  fullName     String
+  phone        String
+  address      String
+  city         String
+  area         String?
+  postalCode   String?
+  instructions String?
+
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Order {
+  id          String @id @default(cuid())
+  orderNumber String @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  deliveryAddressId String?
+  deliveryAddress   DeliveryAddress? @relation(fields: [deliveryAddressId], references: [id])
+
+  status        String  @default("PENDING")
+  paymentMethod String
+  subtotal      Float
+  deliveryFee   Float   @default(0)
+  discount      Float   @default(0)
+  total         Float
+  notes         String?
+
+  items   OrderItem[]
+  payment Payment?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id       String @id @default(cuid())
+  quantity Int
+  price    Float
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model Payment {
+  id String @id @default(cuid())
+
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  method        String
+  status        String    @default("PENDING")
+  transactionId String?
+  amount        Float
+  paidAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([transactionId])
+}
+
+model Reservation {
+  id String @id @default(cuid())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  name  String
+  email String?
+  phone String
+
+  date   DateTime
+  guests Int
+  time   String
+
+  specialNote String?
+  status      String  @default("PENDING")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+  @@index([status])
+}
+
+model Review {
+  id      String @id @default(cuid())
+  rating  Int
+  comment String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  menuItemId String?
+  menuItem   MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([menuItemId])
 }

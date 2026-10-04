@@ -1,179 +1,198 @@
-import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
 import "dotenv/config";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL,
 });
 
-const prisma = new PrismaClient({ adapter });
+const prisma = new PrismaClient({
+  adapter,
+});
+// const prisma = new PrismaClient();
+
+const categories = [
+  {
+    name: "Starters",
+    slug: "starters",
+    description: "Elegant appetizers to begin your dining experience.",
+  },
+  {
+    name: "Main Course",
+    slug: "main-course",
+    description: "Signature dishes prepared by our chefs.",
+  },
+  {
+    name: "Desserts",
+    slug: "desserts",
+    description: "Sweet creations to complete your meal.",
+  },
+  {
+    name: "Drinks",
+    slug: "drinks",
+    description: "Refreshing beverages and signature drinks.",
+  },
+];
+
+const dishes = [
+  {
+    name: "Truffle Steak",
+    slug: "truffle-steak",
+    description:
+      "Premium grilled steak served with truffle butter and seasonal vegetables.",
+    price: 1850,
+    oldPrice: 2100,
+    image: "/images/dishes/truffle-steak.jpg",
+    rating: 4.9,
+    available: true,
+    featured: true,
+    categorySlug: "main-course",
+  },
+  {
+    name: "Royal Salmon",
+    slug: "royal-salmon",
+    description:
+      "Pan-seared salmon with creamy herbs, vegetables and our signature sauce.",
+    price: 1450,
+    oldPrice: 1650,
+    image: "/images/dishes/royal-salmon.jpg",
+    rating: 4.8,
+    available: true,
+    featured: true,
+    categorySlug: "main-course",
+  },
+  {
+    name: "Golden Dessert",
+    slug: "golden-dessert",
+    description:
+      "A luxurious signature dessert crafted with chocolate, cream and caramel.",
+    price: 650,
+    oldPrice: 750,
+    image: "/images/dishes/golden-dessert.jpg",
+    rating: 4.9,
+    available: true,
+    featured: true,
+    categorySlug: "desserts",
+  },
+  {
+    name: "Crispy Chicken",
+    slug: "crispy-chicken",
+    description:
+      "Crispy golden chicken served with our signature dipping sauce.",
+    price: 780,
+    image: "/images/dishes/crispy-chicken.jpg",
+    rating: 4.7,
+    available: true,
+    featured: false,
+    categorySlug: "starters",
+  },
+  {
+    name: "Creamy Pasta",
+    slug: "creamy-pasta",
+    description: "Rich creamy pasta prepared with fresh herbs and parmesan.",
+    price: 720,
+    image: "/images/dishes/creamy-pasta.jpg",
+    rating: 4.8,
+    available: true,
+    featured: false,
+    categorySlug: "main-course",
+  },
+  {
+    name: "Chocolate Lava Cake",
+    slug: "chocolate-lava-cake",
+    description: "Warm chocolate cake with a rich molten chocolate center.",
+    price: 550,
+    image: "/images/dishes/chocolate-lava-cake.jpg",
+    rating: 4.9,
+    available: true,
+    featured: false,
+    categorySlug: "desserts",
+  },
+  {
+    name: "Classic Mojito",
+    slug: "classic-mojito",
+    description:
+      "Refreshing mint, lime and sparkling soda with a signature ST twist.",
+    price: 420,
+    image: "/images/dishes/classic-mojito.jpg",
+    rating: 4.6,
+    available: true,
+    featured: false,
+    categorySlug: "drinks",
+  },
+  {
+    name: "Fresh Orange Juice",
+    slug: "fresh-orange-juice",
+    description: "Freshly squeezed orange juice served chilled.",
+    price: 280,
+    image: "/images/dishes/orange-juice.jpg",
+    rating: 4.7,
+    available: true,
+    featured: false,
+    categorySlug: "drinks",
+  },
+];
 
 async function main() {
   console.log("🌱 Starting ST Restaurant seed...");
 
-  const starters = await prisma.category.upsert({
-    where: { slug: "starters" },
-    update: {},
-    create: {
-      name: "Starters",
-      slug: "starters",
-      description: "Elegant starters to begin your dining experience.",
-    },
-  });
+  for (const category of categories) {
+    await prisma.category.upsert({
+      where: {
+        slug: category.slug,
+      },
+      update: {
+        name: category.name,
+        description: category.description,
+      },
+      create: category,
+    });
+  }
 
-  const mainCourse = await prisma.category.upsert({
-    where: { slug: "main-course" },
-    update: {},
-    create: {
-      name: "Main Course",
-      slug: "main-course",
-      description: "Signature main dishes from ST Restaurant.",
-    },
-  });
+  for (const dish of dishes) {
+    const category = await prisma.category.findUnique({
+      where: {
+        slug: dish.categorySlug,
+      },
+    });
 
-  const desserts = await prisma.category.upsert({
-    where: { slug: "desserts" },
-    update: {},
-    create: {
-      name: "Desserts",
-      slug: "desserts",
-      description: "Premium desserts and sweet dishes.",
-    },
-  });
+    if (!category) {
+      throw new Error(`Category not found: ${dish.categorySlug}`);
+    }
 
-  const drinks = await prisma.category.upsert({
-    where: { slug: "drinks" },
-    update: {},
-    create: {
-      name: "Drinks",
-      slug: "drinks",
-      description: "Refreshing drinks and signature beverages.",
-    },
-  });
+    await prisma.menuItem.upsert({
+      where: {
+        slug: dish.slug,
+      },
+      update: {
+        name: dish.name,
+        description: dish.description,
+        price: dish.price,
+        oldPrice: dish.oldPrice,
+        image: dish.image,
+        rating: dish.rating,
+        available: dish.available,
+        featured: dish.featured,
+        categoryId: category.id,
+      },
+      create: {
+        name: dish.name,
+        slug: dish.slug,
+        description: dish.description,
+        price: dish.price,
+        oldPrice: dish.oldPrice,
+        image: dish.image,
+        rating: dish.rating,
+        available: dish.available,
+        featured: dish.featured,
+        categoryId: category.id,
+      },
+    });
+  }
 
-  await prisma.menuItem.upsert({
-    where: { slug: "truffle-bruschetta" },
-    update: {},
-    create: {
-      name: "Truffle Bruschetta",
-      slug: "truffle-bruschetta",
-      description: "Crispy artisan bread with creamy truffle and fresh herbs.",
-      price: 590,
-      image: "/images/dishes/truffle-bruschetta.jpg",
-      available: true,
-      featured: true,
-      categoryId: starters.id,
-    },
-  });
-
-  await prisma.menuItem.upsert({
-    where: { slug: "crispy-calamari" },
-    update: {},
-    create: {
-      name: "Crispy Calamari",
-      slug: "crispy-calamari",
-      description: "Golden crispy calamari with signature lemon herb sauce.",
-      price: 790,
-      image: "/images/dishes/crispy-calamari.jpg",
-      available: true,
-      featured: false,
-      categoryId: starters.id,
-    },
-  });
-
-  await prisma.menuItem.upsert({
-    where: { slug: "truffle-steak" },
-    update: {},
-    create: {
-      name: "Truffle Steak",
-      slug: "truffle-steak",
-      description: "Premium grilled steak with truffle sauce and vegetables.",
-      price: 1890,
-      image: "/images/dishes/truffle-steak.jpg",
-      available: true,
-      featured: true,
-      categoryId: mainCourse.id,
-    },
-  });
-
-  await prisma.menuItem.upsert({
-    where: { slug: "royal-salmon" },
-    update: {},
-    create: {
-      name: "Royal Salmon",
-      slug: "royal-salmon",
-      description: "Fresh salmon fillet with creamy sauce and herbs.",
-      price: 1490,
-      image: "/images/dishes/royal-salmon.jpg",
-      available: true,
-      featured: true,
-      categoryId: mainCourse.id,
-    },
-  });
-
-  await prisma.menuItem.upsert({
-    where: { slug: "golden-dessert" },
-    update: {},
-    create: {
-      name: "Golden Dessert",
-      slug: "golden-dessert",
-      description: "Elegant signature dessert with rich creamy texture.",
-      price: 690,
-      image: "/images/dishes/golden-dessert.jpg",
-      available: true,
-      featured: true,
-      categoryId: desserts.id,
-    },
-  });
-
-  await prisma.menuItem.upsert({
-    where: { slug: "chocolate-lava" },
-    update: {},
-    create: {
-      name: "Chocolate Lava",
-      slug: "chocolate-lava",
-      description: "Warm chocolate cake with a rich molten center.",
-      price: 650,
-      image: "/images/dishes/chocolate-lava.jpg",
-      available: true,
-      featured: false,
-      categoryId: desserts.id,
-    },
-  });
-
-  await prisma.menuItem.upsert({
-    where: { slug: "royal-mocktail" },
-    update: {},
-    create: {
-      name: "Royal Mocktail",
-      slug: "royal-mocktail",
-      description: "Refreshing signature mocktail with citrus and berries.",
-      price: 390,
-      image: "/images/dishes/royal-mocktail.jpg",
-      available: true,
-      featured: true,
-      categoryId: drinks.id,
-    },
-  });
-
-  await prisma.menuItem.upsert({
-    where: { slug: "fresh-lemonade" },
-    update: {},
-    create: {
-      name: "Fresh Lemonade",
-      slug: "fresh-lemonade",
-      description: "Fresh lemon with mint and a refreshing citrus finish.",
-      price: 290,
-      image: "/images/dishes/fresh-lemonade.jpg",
-      available: true,
-      featured: false,
-      categoryId: drinks.id,
-    },
-  });
-
-  console.log("✅ Categories created!");
-  console.log("✅ Menu items created!");
-  console.log("🍽️ ST Restaurant database is ready!");
+  console.log("✅ Categories created.");
+  console.log("✅ Menu items created.");
+  console.log("🍽️ ST Restaurant seed completed successfully.");
 }
 
 main()
