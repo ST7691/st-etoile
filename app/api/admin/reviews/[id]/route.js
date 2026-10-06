@@ -2,13 +2,11 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
-const ALLOWED_STATUSES = ["PENDING", "CONFIRMED", "COMPLETED", "CANCELLED"];
-
 function isStaffOrAdmin(session) {
   return session?.user?.role === "ADMIN" || session?.user?.role === "STAFF";
 }
 
-export async function PATCH(request, { params }) {
+export async function DELETE(request, { params }) {
   try {
     const session = await auth();
 
@@ -38,76 +36,73 @@ export async function PATCH(request, { params }) {
       return NextResponse.json(
         {
           success: false,
-          message: "Reservation ID is required.",
+          message: "Review ID is required.",
         },
         { status: 400 },
       );
     }
 
-    const body = await request.json();
-
-    const status = String(body.status || "")
-      .trim()
-      .toUpperCase();
-
-    if (!ALLOWED_STATUSES.includes(status)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid reservation status.",
-        },
-        { status: 400 },
-      );
-    }
-
-    const reservation = await prisma.reservation.findUnique({
+    const review = await prisma.review.findUnique({
       where: {
         id,
       },
+      select: {
+        id: true,
+        menuItemId: true,
+      },
     });
 
-    if (!reservation) {
+    if (!review) {
       return NextResponse.json(
         {
           success: false,
-          message: "Reservation not found.",
+          message: "Review not found.",
         },
         { status: 404 },
       );
     }
 
-    const updatedReservation = await prisma.reservation.update({
+    await prisma.review.delete({
       where: {
         id,
       },
-      data: {
-        status,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-            image: true,
-          },
-        },
-      },
     });
+
+    /* Recalculate menu rating */
+
+    if (review.menuItemId) {
+      const ratingData = await prisma.review.aggregate({
+        where: {
+          menuItemId: review.menuItemId,
+        },
+        _avg: {
+          rating: true,
+        },
+      });
+
+      const newRating = Number(Number(ratingData._avg.rating || 0).toFixed(1));
+
+      await prisma.menuItem.update({
+        where: {
+          id: review.menuItemId,
+        },
+        data: {
+          rating: newRating,
+        },
+      });
+    }
 
     return NextResponse.json({
       success: true,
-      message: `Reservation marked as ${status}.`,
-      data: updatedReservation,
+      message: "Review deleted successfully.",
     });
   } catch (error) {
-    console.error("ADMIN RESERVATION PATCH ERROR:", error);
+    console.error("ADMIN REVIEW DELETE ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to update reservation status.",
+        message: "Failed to delete review.",
       },
       { status: 500 },
     );

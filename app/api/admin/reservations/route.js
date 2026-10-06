@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
+function isStaffOrAdmin(session) {
+  return session?.user?.role === "ADMIN" || session?.user?.role === "STAFF";
+}
+
 export async function GET() {
   try {
     const session = await auth();
@@ -10,15 +14,13 @@ export async function GET() {
       return NextResponse.json(
         {
           success: false,
-          message: "Authentication required.",
+          message: "Please login first.",
         },
         { status: 401 },
       );
     }
 
-    const role = session.user.role;
-
-    if (role !== "ADMIN" && role !== "STAFF") {
+    if (!isStaffOrAdmin(session)) {
       return NextResponse.json(
         {
           success: false,
@@ -36,12 +38,13 @@ export async function GET() {
             name: true,
             email: true,
             phone: true,
+            image: true,
           },
         },
       },
       orderBy: [
         {
-          date: "asc",
+          date: "desc",
         },
         {
           createdAt: "desc",

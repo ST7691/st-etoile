@@ -1,98 +1,127 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-
-import {
-  CalendarDays,
-  Clock3,
-  Users,
-  Phone,
-  Mail,
-  Search,
-  RefreshCw,
-  CheckCircle2,
-  XCircle,
-  CircleDot,
-  ClipboardCheck,
-  Loader2,
-  User,
-  MessageSquare,
-  ChevronDown,
-} from "lucide-react";
+import { useSession } from "next-auth/react";
 import Swal from "sweetalert2";
+import {
+  ArrowLeft,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  Home,
+  Loader2,
+  Mail,
+  Phone,
+  RefreshCw,
+  Search,
+  Users,
+  XCircle,
+} from "lucide-react";
 
-const STATUS_OPTIONS = ["PENDING", "CONFIRMED", "COMPLETED", "CANCELLED"];
+const STATUS_OPTIONS = [
+  "ALL",
+  "PENDING",
+  "CONFIRMED",
+  "COMPLETED",
+  "CANCELLED",
+];
 
 const STATUS_CONFIG = {
   PENDING: {
     label: "Pending",
-    icon: CircleDot,
-    className: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+    className: "border-yellow-500/20 bg-yellow-500/10 text-yellow-400",
+    icon: Clock3,
   },
+
   CONFIRMED: {
     label: "Confirmed",
+    className: "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
     icon: CheckCircle2,
-    className: "bg-blue-500/10 text-blue-400 border-blue-500/20",
   },
+
   COMPLETED: {
     label: "Completed",
-    icon: ClipboardCheck,
-    className: "bg-green-500/10 text-green-400 border-green-500/20",
+    className: "border-blue-500/20 bg-blue-500/10 text-blue-400",
+    icon: CheckCircle2,
   },
+
   CANCELLED: {
     label: "Cancelled",
+    className: "border-red-500/20 bg-red-500/10 text-red-400",
     icon: XCircle,
-    className: "bg-red-500/10 text-red-400 border-red-500/20",
   },
 };
 
 function formatDate(date) {
-  if (!date) return "—";
+  if (!date) return "-";
 
-  return new Date(date).toLocaleDateString("en-US", {
-    year: "numeric",
+  return new Date(date).toLocaleDateString("en-BD", {
+    weekday: "short",
+    day: "2-digit",
     month: "short",
-    day: "numeric",
-  });
-}
-
-function formatFullDate(date) {
-  if (!date) return "—";
-
-  return new Date(date).toLocaleDateString("en-US", {
-    weekday: "long",
     year: "numeric",
-    month: "long",
-    day: "numeric",
   });
 }
 
-function getStatusConfig(status) {
-  return STATUS_CONFIG[status] || STATUS_CONFIG.PENDING;
+function formatCreatedAt(date) {
+  if (!date) return "-";
+
+  return new Date(date).toLocaleString("en-BD", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-export default function ReservationsPage() {
-  const { data: session, status: sessionStatus } = useSession();
+function SkeletonCard() {
+  return (
+    <div className="animate-pulse rounded-2xl border border-white/10 bg-[#111] p-6">
+      <div className="flex justify-between">
+        <div>
+          <div className="h-5 w-40 rounded bg-white/10" />
+          <div className="mt-2 h-3 w-28 rounded bg-white/5" />
+        </div>
+
+        <div className="h-7 w-24 rounded-full bg-white/5" />
+      </div>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <div className="h-20 rounded-xl bg-white/5" />
+        <div className="h-20 rounded-xl bg-white/5" />
+        <div className="h-20 rounded-xl bg-white/5" />
+      </div>
+    </div>
+  );
+}
+
+export default function AdminReservationsPage() {
   const router = useRouter();
 
+  const { data: session, status: sessionStatus } = useSession();
+
   const [reservations, setReservations] = useState([]);
+
   const [loading, setLoading] = useState(true);
-  const [updatingId, setUpdatingId] = useState(null);
+
+  const [refreshing, setRefreshing] = useState(false);
 
   const [search, setSearch] = useState("");
+
   const [statusFilter, setStatusFilter] = useState("ALL");
 
-  const [selectedReservation, setSelectedReservation] = useState(null);
+  const [updatingId, setUpdatingId] = useState(null);
 
-  // --------------------------------------------------
-  // Fetch reservations
-  // --------------------------------------------------
-
-  async function fetchReservations() {
+  async function loadReservations(refresh = false) {
     try {
-      setLoading(true);
+      if (refresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
 
       const response = await fetch("/api/admin/reservations", {
         cache: "no-store",
@@ -106,156 +135,72 @@ export default function ReservationsPage() {
       }
 
       if (response.status === 403) {
-        setReservations([]);
         return;
       }
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to load reservations");
+      if (!response.ok) {
+        throw new Error(result?.message || "Failed to load reservations.");
       }
 
-      setReservations(result.data || []);
+      setReservations(result?.data || []);
     } catch (error) {
-      console.error("RESERVATIONS FETCH ERROR:", error);
+      console.error("LOAD ADMIN RESERVATIONS ERROR:", error);
 
       Swal.fire({
         icon: "error",
-        title: "Failed to load reservations",
-        text: error.message || "Something went wrong.",
+        title: "Unable to Load",
+        text: error?.message || "Could not load reservations.",
         background: "#111",
-        color: "#f5f1e8",
+        color: "#fff",
         confirmButtonColor: "#d4af37",
       });
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
-
-  // --------------------------------------------------
-  // Initial load
-  // --------------------------------------------------
 
   useEffect(() => {
-    if (sessionStatus === "loading") return;
-
-    if (!session) {
-      router.push("/login?callbackUrl=/dashboard/reservations");
+    if (sessionStatus !== "authenticated") {
       return;
     }
 
-    if (session.user?.role !== "ADMIN" && session.user?.role !== "STAFF") {
-      setLoading(false);
+    if (session?.user?.role !== "ADMIN" && session?.user?.role !== "STAFF") {
       return;
     }
 
-    fetchReservations();
-  }, [session, sessionStatus]);
-
-  // --------------------------------------------------
-  // Update reservation status
-  // --------------------------------------------------
-
-  async function updateReservationStatus(id, newStatus) {
-    try {
-      setUpdatingId(id);
-
-      const response = await fetch(`/api/admin/reservations/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          status: newStatus,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to update reservation");
-      }
-
-      setReservations((current) =>
-        current.map((reservation) =>
-          reservation.id === id
-            ? {
-                ...reservation,
-                status: result.data?.status || newStatus,
-              }
-            : reservation,
-        ),
-      );
-
-      setSelectedReservation((current) =>
-        current?.id === id
-          ? {
-              ...current,
-              status: result.data?.status || newStatus,
-            }
-          : current,
-      );
-
-      Swal.fire({
-        toast: true,
-        position: "top-end",
-        icon: "success",
-        title: `Reservation ${newStatus.toLowerCase()}`,
-        showConfirmButton: false,
-        timer: 1800,
-        background: "#111",
-        color: "#f5f1e8",
-      });
-    } catch (error) {
-      console.error("UPDATE RESERVATION ERROR:", error);
-
-      Swal.fire({
-        icon: "error",
-        title: "Update failed",
-        text: error.message || "Something went wrong.",
-        background: "#111",
-        color: "#f5f1e8",
-        confirmButtonColor: "#d4af37",
-      });
-    } finally {
-      setUpdatingId(null);
-    }
-  }
-
-  // --------------------------------------------------
-  // Filter reservations
-  // --------------------------------------------------
+    loadReservations();
+  }, [sessionStatus, session]);
 
   const filteredReservations = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const searchValue = search.trim().toLowerCase();
 
     return reservations.filter((reservation) => {
       const matchesStatus =
         statusFilter === "ALL" || reservation.status === statusFilter;
 
-      if (!matchesStatus) return false;
+      if (!matchesStatus) {
+        return false;
+      }
 
-      if (!query) return true;
+      if (!searchValue) {
+        return true;
+      }
 
-      const searchableText = [
-        reservation.name,
-        reservation.email,
-        reservation.phone,
-        reservation.time,
-        reservation.specialNote,
-        reservation.user?.name,
-        reservation.user?.email,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+      const customerName = reservation.name || "";
 
-      return searchableText.includes(query);
+      const customerEmail = reservation.email || reservation.user?.email || "";
+
+      const customerPhone = reservation.phone || reservation.user?.phone || "";
+
+      const reservationId = reservation.id || "";
+
+      const searchableText =
+        `${customerName} ${customerEmail} ${customerPhone} ${reservationId} ${reservation.time}`.toLowerCase();
+
+      return searchableText.includes(searchValue);
     });
   }, [reservations, search, statusFilter]);
-
-  // --------------------------------------------------
-  // Statistics
-  // --------------------------------------------------
 
   const stats = useMemo(() => {
     return {
@@ -274,368 +219,483 @@ export default function ReservationsPage() {
     };
   }, [reservations]);
 
-  // --------------------------------------------------
-  // Loading
-  // --------------------------------------------------
+  async function updateStatus(reservationId, nextStatus) {
+    const previousReservations = [...reservations];
 
-  if (sessionStatus === "loading" || loading) {
+    setUpdatingId(reservationId);
+
+    setReservations((current) =>
+      current.map((reservation) =>
+        reservation.id === reservationId
+          ? {
+              ...reservation,
+              status: nextStatus,
+            }
+          : reservation,
+      ),
+    );
+
+    try {
+      const response = await fetch(`/api/admin/reservations/${reservationId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          status: nextStatus,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.message || "Failed to update status.");
+      }
+
+      if (result?.data) {
+        setReservations((current) =>
+          current.map((reservation) =>
+            reservation.id === reservationId ? result.data : reservation,
+          ),
+        );
+      }
+
+      Swal.fire({
+        toast: true,
+        position: "top-end",
+        icon: "success",
+        title: "Status Updated",
+        text: `Reservation is now ${nextStatus}.`,
+        showConfirmButton: false,
+        timer: 2200,
+        background: "#111",
+        color: "#fff",
+      });
+    } catch (error) {
+      setReservations(previousReservations);
+
+      console.error("UPDATE RESERVATION ERROR:", error);
+
+      Swal.fire({
+        icon: "error",
+        title: "Update Failed",
+        text: error?.message || "Could not update reservation.",
+        background: "#111",
+        color: "#fff",
+        confirmButtonColor: "#d4af37",
+      });
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  if (sessionStatus === "loading") {
     return (
-      <main className="min-h-screen bg-[#080808] px-4 py-10 text-[#f5f1e8] sm:px-6 lg:px-8">
+      <main className="min-h-screen bg-[#080808] p-6 text-white">
         <div className="mx-auto max-w-7xl">
-          <div className="animate-pulse space-y-8">
-            <div className="h-10 w-72 rounded-lg bg-white/5" />
+          <div className="animate-pulse">
+            <div className="h-8 w-64 rounded bg-white/10" />
+            <div className="mt-3 h-4 w-96 rounded bg-white/5" />
+          </div>
 
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-              {[1, 2, 3, 4, 5].map((item) => (
-                <div
-                  key={item}
-                  className="h-28 rounded-2xl border border-white/5 bg-white/[0.03]"
-                />
-              ))}
-            </div>
-
-            <div className="h-20 rounded-2xl border border-white/5 bg-white/[0.03]" />
-
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {[1, 2, 3, 4, 5, 6].map((item) => (
-                <div
-                  key={item}
-                  className="h-72 rounded-2xl border border-white/5 bg-white/[0.03]"
-                />
-              ))}
-            </div>
+          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            {Array.from({
+              length: 5,
+            }).map((_, index) => (
+              <div key={index} className="h-28 rounded-2xl bg-white/5" />
+            ))}
           </div>
         </div>
       </main>
     );
   }
 
-  // --------------------------------------------------
-  // Access denied
-  // --------------------------------------------------
-
-  if (
-    session &&
-    session.user?.role !== "ADMIN" &&
-    session.user?.role !== "STAFF"
-  ) {
+  if (sessionStatus === "unauthenticated" || !session?.user) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#080808] px-6 text-[#f5f1e8]">
-        <div className="max-w-md rounded-3xl border border-red-500/20 bg-red-500/5 p-8 text-center">
-          <XCircle className="mx-auto mb-5 h-14 w-14 text-red-400" />
+      <main className="flex min-h-screen items-center justify-center bg-[#080808] px-4 text-white">
+        <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#111] p-8 text-center">
+          <h1 className="text-2xl font-bold">Login Required</h1>
 
-          <h1 className="text-2xl font-semibold">Access Denied</h1>
-
-          <p className="mt-3 text-sm leading-6 text-white/50">
-            You do not have permission to access the reservation management
-            system.
+          <p className="mt-3 text-sm text-white/40">
+            Please login to access the dashboard.
           </p>
 
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="mt-6 rounded-xl bg-[#d4af37] px-6 py-3 text-sm font-semibold text-black transition hover:bg-[#f1d77a]"
+          <Link
+            href="/login?callbackUrl=/dashboard/reservations"
+            className="mt-6 inline-flex rounded-xl bg-[#d4af37] px-6 py-3 font-semibold text-black"
           >
-            Back to Dashboard
-          </button>
+            Login
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  if (session.user.role !== "ADMIN" && session.user.role !== "STAFF") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#080808] px-4 text-white">
+        <div className="w-full max-w-md rounded-3xl border border-red-500/20 bg-[#111] p-8 text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10 text-red-400">
+            <XCircle size={28} />
+          </div>
+
+          <h1 className="mt-5 text-2xl font-bold">Access Denied</h1>
+
+          <p className="mt-3 text-sm leading-6 text-white/40">
+            You don't have permission to access reservation management.
+          </p>
+
+          <div className="mt-6 flex justify-center gap-3">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-sm"
+            >
+              <Home size={16} />
+              Home
+            </Link>
+
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#d4af37] px-5 py-3 text-sm font-semibold text-black"
+            >
+              <ArrowLeft size={16} />
+              Back
+            </button>
+          </div>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#080808] px-4 py-8 text-[#f5f1e8] sm:px-6 lg:px-8">
+    <main className="min-h-screen bg-[#080808] px-4 py-8 text-white md:px-8 lg:py-10">
       <div className="mx-auto max-w-7xl">
-        {/* ================================================= */}
-        {/* HEADER */}
-        {/* ================================================= */}
+        {/* ==============================================================
+            TOP ACTIONS
+        =============================================================== */}
 
-        <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="mb-8 flex flex-wrap items-center gap-3">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#111] px-4 py-2.5 text-sm text-white/60 transition hover:border-[#d4af37]/30 hover:text-[#d4af37]"
+          >
+            <Home size={16} />
+            Home
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#111] px-4 py-2.5 text-sm text-white/60 transition hover:border-[#d4af37]/30 hover:text-[#d4af37]"
+          >
+            <ArrowLeft size={16} />
+            Back
+          </button>
+
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-2 rounded-xl border border-[#d4af37]/20 bg-[#d4af37]/5 px-4 py-2.5 text-sm text-[#d4af37] transition hover:bg-[#d4af37] hover:text-black"
+          >
+            Dashboard
+          </Link>
+        </div>
+
+        {/* ==============================================================
+            HEADER
+        =============================================================== */}
+
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div className="mb-3 flex items-center gap-2 text-sm text-[#d4af37]">
-              <CalendarDays className="h-4 w-4" />
-              <span>Restaurant Management</span>
-            </div>
+            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[#d4af37]">
+              Admin Management
+            </p>
 
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+            <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
               Reservations
             </h1>
 
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/45">
-              Manage customer table bookings, reservation times, guest counts
-              and booking status from one place.
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/40">
+              Manage customer table bookings, confirm reservations and track
+              completed or cancelled bookings.
             </p>
           </div>
 
           <button
-            onClick={fetchReservations}
-            disabled={loading}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#d4af37]/20 bg-[#d4af37]/5 px-5 py-3 text-sm font-medium text-[#d4af37] transition hover:bg-[#d4af37]/10 disabled:opacity-50"
+            type="button"
+            onClick={() => loadReservations(true)}
+            disabled={refreshing}
+            className="inline-flex w-fit items-center gap-2 rounded-xl border border-white/10 bg-[#111] px-4 py-3 text-sm text-white/60 transition hover:border-[#d4af37]/30 hover:text-[#d4af37] disabled:opacity-50"
           >
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw size={17} className={refreshing ? "animate-spin" : ""} />
             Refresh
           </button>
-  
         </div>
 
-        {/* ================================================= */}
-        {/* STATS */}
-        {/* ================================================= */}
+        {/* ==============================================================
+            STATS
+        =============================================================== */}
 
-        <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
-          <StatCard label="Total" value={stats.total} icon={CalendarDays} />
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <StatCard title="Total" value={stats.total} icon={CalendarDays} />
 
-          <StatCard
-            label="Pending"
-            value={stats.pending}
-            icon={CircleDot}
-            iconClass="text-yellow-400"
-          />
+          <StatCard title="Pending" value={stats.pending} icon={Clock3} />
 
           <StatCard
-            label="Confirmed"
+            title="Confirmed"
             value={stats.confirmed}
             icon={CheckCircle2}
-            iconClass="text-blue-400"
           />
 
           <StatCard
-            label="Completed"
+            title="Completed"
             value={stats.completed}
-            icon={ClipboardCheck}
-            iconClass="text-green-400"
+            icon={CheckCircle2}
           />
 
-          <StatCard
-            label="Cancelled"
-            value={stats.cancelled}
-            icon={XCircle}
-            iconClass="text-red-400"
-          />
+          <StatCard title="Cancelled" value={stats.cancelled} icon={XCircle} />
         </div>
 
-        {/* ================================================= */}
-        {/* FILTER BAR */}
-        {/* ================================================= */}
+        {/* ==============================================================
+            FILTERS
+        =============================================================== */}
 
-        <div className="mb-8 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
-          <div className="flex flex-col gap-4 lg:flex-row">
+        <section className="mt-8 rounded-2xl border border-white/10 bg-[#111] p-4 sm:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
             {/* Search */}
 
             <div className="relative flex-1">
-              <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
+              <Search
+                size={18}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-white/25"
+              />
 
               <input
                 type="text"
-                placeholder="Search by name, email, phone..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                className="h-12 w-full rounded-xl border border-white/10 bg-black/30 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-[#d4af37]/40"
+                placeholder="Search name, email, phone or reservation ID..."
+                className="h-12 w-full rounded-xl border border-white/10 bg-[#080808] pl-11 pr-4 text-sm text-white outline-none placeholder:text-white/20 focus:border-[#d4af37]/40"
               />
             </div>
 
             {/* Status */}
 
-            <div className="relative lg:w-56">
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
-                className="h-12 w-full appearance-none rounded-xl border border-white/10 bg-black/30 px-4 pr-10 text-sm text-white outline-none focus:border-[#d4af37]/40"
-              >
-                <option value="ALL" className="bg-[#111]">
-                  All Status
-                </option>
-
-                {STATUS_OPTIONS.map((status) => (
-                  <option key={status} value={status} className="bg-[#111]">
-                    {STATUS_CONFIG[status].label}
-                  </option>
-                ))}
-              </select>
-
-              <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
+            <div className="flex flex-wrap gap-2">
+              {STATUS_OPTIONS.map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => setStatusFilter(status)}
+                  className={`rounded-xl px-4 py-2.5 text-xs font-semibold transition ${
+                    statusFilter === status
+                      ? "bg-[#d4af37] text-black"
+                      : "border border-white/10 bg-white/5 text-white/45 hover:text-white"
+                  }`}
+                >
+                  {status === "ALL" ? "All" : status}
+                </button>
+              ))}
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* ================================================= */}
-        {/* RESULTS INFO */}
-        {/* ================================================= */}
+        {/* ==============================================================
+            RESULTS
+        =============================================================== */}
 
-        <div className="mb-5 flex items-center justify-between">
-          <p className="text-sm text-white/40">
+        <div className="mt-6 flex items-center justify-between">
+          <p className="text-sm text-white/35">
             Showing{" "}
-            <span className="text-white">{filteredReservations.length}</span> of{" "}
-            <span className="text-white">{reservations.length}</span>{" "}
-            reservations
+            <span className="font-semibold text-white/70">
+              {filteredReservations.length}
+            </span>{" "}
+            reservation
+            {filteredReservations.length === 1 ? "" : "s"}
           </p>
+
+          {search || statusFilter !== "ALL" ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                setStatusFilter("ALL");
+              }}
+              className="text-xs text-[#d4af37] hover:underline"
+            >
+              Clear Filters
+            </button>
+          ) : null}
         </div>
 
-        {/* ================================================= */}
-        {/* EMPTY */}
-        {/* ================================================= */}
+        {/* ==============================================================
+            LOADING
+        =============================================================== */}
 
-        {!loading && filteredReservations.length === 0 && (
-          <div className="rounded-3xl border border-white/10 bg-white/[0.025] px-6 py-20 text-center">
-            <CalendarDays className="mx-auto h-14 w-14 text-white/15" />
+        {loading ? (
+          <div className="mt-5 space-y-4">
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+        ) : filteredReservations.length === 0 ? (
+          <div className="mt-5 rounded-3xl border border-white/10 bg-[#111] px-6 py-20 text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5 text-white/30">
+              <CalendarDays size={28} />
+            </div>
 
             <h2 className="mt-5 text-xl font-semibold">
-              No reservations found
+              No Reservations Found
             </h2>
 
-            <p className="mt-2 text-sm text-white/40">
+            <p className="mt-2 text-sm text-white/35">
               Try changing your search or status filter.
             </p>
           </div>
-        )}
-
-        {/* ================================================= */}
-        {/* RESERVATION GRID */}
-        {/* ================================================= */}
-
-        {filteredReservations.length > 0 && (
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+        ) : (
+          <div className="mt-5 space-y-5">
             {filteredReservations.map((reservation) => {
-              const status = getStatusConfig(reservation.status);
+              const config =
+                STATUS_CONFIG[reservation.status] || STATUS_CONFIG.PENDING;
 
-              const StatusIcon = status.icon;
+              const StatusIcon = config.icon;
+
+              const customerName =
+                reservation.name ||
+                reservation.user?.name ||
+                "Unknown Customer";
+
+              const customerEmail =
+                reservation.email || reservation.user?.email || "No email";
+
+              const customerPhone =
+                reservation.phone || reservation.user?.phone || "No phone";
 
               return (
                 <article
                   key={reservation.id}
-                  className="group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.025] transition duration-300 hover:-translate-y-1 hover:border-[#d4af37]/20 hover:bg-white/[0.04]"
+                  className="overflow-hidden rounded-3xl border border-white/10 bg-[#111] transition hover:border-[#d4af37]/20"
                 >
-                  {/* Card Header */}
+                  {/* Card Top */}
 
-                  <div className="border-b border-white/10 p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]/70">
-                          Reservation
-                        </p>
-
-                        <h2 className="mt-1 text-lg font-semibold">
-                          {reservation.name || "Guest Customer"}
-                        </h2>
+                  <div className="flex flex-col gap-5 border-b border-white/10 p-5 sm:p-6 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="flex gap-4">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#d4af37]/10 text-[#d4af37]">
+                        <CalendarDays size={22} />
                       </div>
 
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${status.className}`}
-                      >
-                        <StatusIcon className="h-3.5 w-3.5" />
+                      <div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <h2 className="text-lg font-semibold">
+                            {customerName}
+                          </h2>
 
-                        {status.label}
-                      </span>
+                          <span className="text-xs text-white/20">
+                            #{reservation.id.slice(-8)}
+                          </span>
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-xs text-white/35">
+                          <span className="inline-flex items-center gap-1.5">
+                            <Mail size={13} />
+                            {customerEmail}
+                          </span>
+
+                          <span className="inline-flex items-center gap-1.5">
+                            <Phone size={13} />
+                            {customerPhone}
+                          </span>
+                        </div>
+                      </div>
                     </div>
+
+                    <span
+                      className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${config.className}`}
+                    >
+                      <StatusIcon size={14} />
+
+                      {config.label}
+                    </span>
                   </div>
 
-                  {/* Booking Info */}
+                  {/* Main Info */}
 
-                  <div className="space-y-4 p-5">
-                    <div className="grid grid-cols-2 gap-3">
-                      <InfoBox
-                        icon={CalendarDays}
-                        label="Date"
-                        value={formatDate(reservation.date)}
-                      />
+                  <div className="grid gap-3 p-5 sm:grid-cols-3 sm:p-6">
+                    <InfoBox
+                      icon={CalendarDays}
+                      label="Reservation Date"
+                      value={formatDate(reservation.date)}
+                    />
 
-                      <InfoBox
-                        icon={Clock3}
-                        label="Time"
-                        value={reservation.time || "—"}
-                      />
+                    <InfoBox
+                      icon={Clock3}
+                      label="Time"
+                      value={reservation.time}
+                    />
+
+                    <InfoBox
+                      icon={Users}
+                      label="Guests"
+                      value={`${reservation.guests} ${
+                        reservation.guests === 1 ? "Guest" : "Guests"
+                      }`}
+                    />
+                  </div>
+
+                  {/* Special Note */}
+
+                  {reservation.specialNote && (
+                    <div className="mx-5 mb-5 rounded-2xl border border-[#d4af37]/10 bg-[#d4af37]/5 p-4 sm:mx-6">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-[#d4af37]">
+                        Special Request
+                      </p>
+
+                      <p className="mt-2 text-sm leading-6 text-white/50">
+                        {reservation.specialNote}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Footer */}
+
+                  <div className="flex flex-col gap-4 border-t border-white/10 bg-white/[0.015] p-5 sm:p-6 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wider text-white/25">
+                        Created
+                      </p>
+
+                      <p className="mt-1 text-sm text-white/50">
+                        {formatCreatedAt(reservation.createdAt)}
+                      </p>
                     </div>
 
-                    <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-black/20 p-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#d4af37]/10 text-[#d4af37]">
-                        <Users className="h-5 w-5" />
-                      </div>
+                    {/* Status Controls */}
 
-                      <div>
-                        <p className="text-xs text-white/35">Guests</p>
-
-                        <p className="mt-0.5 text-sm font-medium">
-                          {reservation.guests}{" "}
-                          {reservation.guests === 1 ? "Guest" : "Guests"}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Contact */}
-
-                    <div className="space-y-2.5">
-                      {reservation.phone && (
-                        <div className="flex items-center gap-3 text-sm">
-                          <Phone className="h-4 w-4 text-[#d4af37]" />
-
-                          <span className="truncate text-white/65">
-                            {reservation.phone}
-                          </span>
-                        </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {updatingId === reservation.id && (
+                        <Loader2
+                          size={17}
+                          className="animate-spin text-[#d4af37]"
+                        />
                       )}
 
-                      {reservation.email && (
-                        <div className="flex items-center gap-3 text-sm">
-                          <Mail className="h-4 w-4 text-[#d4af37]" />
-
-                          <span className="truncate text-white/65">
-                            {reservation.email}
-                          </span>
-                        </div>
+                      {["PENDING", "CONFIRMED", "COMPLETED", "CANCELLED"].map(
+                        (status) => (
+                          <button
+                            key={status}
+                            type="button"
+                            disabled={updatingId === reservation.id}
+                            onClick={() => updateStatus(reservation.id, status)}
+                            className={`rounded-xl border px-3 py-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                              reservation.status === status
+                                ? "border-[#d4af37]/40 bg-[#d4af37]/10 text-[#d4af37]"
+                                : "border-white/10 bg-white/5 text-white/40 hover:border-white/20 hover:text-white"
+                            }`}
+                          >
+                            {status}
+                          </button>
+                        ),
                       )}
-                    </div>
-
-                    {/* Note */}
-
-                    {reservation.specialNote && (
-                      <div className="rounded-xl border border-white/5 bg-black/20 p-3">
-                        <div className="mb-1 flex items-center gap-2 text-xs text-white/35">
-                          <MessageSquare className="h-3.5 w-3.5" />
-                          Special Note
-                        </div>
-
-                        <p className="line-clamp-2 text-sm leading-5 text-white/60">
-                          {reservation.specialNote}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Actions */}
-
-                    <div className="flex gap-2 pt-1">
-                      <button
-                        onClick={() => setSelectedReservation(reservation)}
-                        className="flex-1 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-white/70 transition hover:bg-white/[0.06] hover:text-white"
-                      >
-                        View Details
-                      </button>
-
-                      <div className="relative">
-                        <select
-                          value={reservation.status}
-                          disabled={updatingId === reservation.id}
-                          onChange={(event) =>
-                            updateReservationStatus(
-                              reservation.id,
-                              event.target.value,
-                            )
-                          }
-                          className="h-full appearance-none rounded-xl border border-[#d4af37]/20 bg-[#d4af37]/5 px-4 pr-9 text-sm font-medium text-[#d4af37] outline-none transition hover:bg-[#d4af37]/10 disabled:opacity-50"
-                        >
-                          {STATUS_OPTIONS.map((option) => (
-                            <option
-                              key={option}
-                              value={option}
-                              className="bg-[#111] text-white"
-                            >
-                              {STATUS_CONFIG[option].label}
-                            </option>
-                          ))}
-                        </select>
-
-                        {updatingId === reservation.id && (
-                          <Loader2 className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-[#d4af37]" />
-                        )}
-                      </div>
                     </div>
                   </div>
                 </article>
@@ -643,222 +703,71 @@ export default function ReservationsPage() {
             })}
           </div>
         )}
-      </div>
 
-      {/* ================================================= */}
-      {/* DETAILS MODAL */}
-      {/* ================================================= */}
+        {/* ==============================================================
+            BOTTOM
+        =============================================================== */}
 
-      {selectedReservation && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-          onClick={() => setSelectedReservation(null)}
-        >
-          <div
-            onClick={(event) => event.stopPropagation()}
-            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-[#d4af37]/20 bg-[#111] shadow-2xl"
+        <div className="mt-10 flex justify-center">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-2 rounded-xl border border-[#d4af37]/20 bg-[#111] px-5 py-3 text-sm font-medium text-[#d4af37] transition hover:bg-[#d4af37] hover:text-black"
           >
-            {/* Modal Header */}
-
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-[#111]/95 p-6 backdrop-blur">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-[#d4af37]">
-                  Reservation Details
-                </p>
-
-                <h2 className="mt-1 text-2xl font-semibold">
-                  {selectedReservation.name}
-                </h2>
-              </div>
-
-              <button
-                onClick={() => setSelectedReservation(null)}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-white/50 transition hover:bg-white/5 hover:text-white"
-              >
-                <XCircle className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Modal Content */}
-
-            <div className="space-y-6 p-6">
-              {/* Status */}
-
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
-                <div>
-                  <p className="text-xs text-white/35">Current Status</p>
-
-                  <p className="mt-1 text-sm font-medium">
-                    {getStatusConfig(selectedReservation.status).label}
-                  </p>
-                </div>
-
-                <div className="flex gap-2">
-                  {STATUS_OPTIONS.map((option) => (
-                    <button
-                      key={option}
-                      disabled={updatingId === selectedReservation.id}
-                      onClick={() =>
-                        updateReservationStatus(selectedReservation.id, option)
-                      }
-                      className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
-                        selectedReservation.status === option
-                          ? "border-[#d4af37]/40 bg-[#d4af37]/10 text-[#d4af37]"
-                          : "border-white/10 text-white/45 hover:bg-white/5 hover:text-white"
-                      }`}
-                    >
-                      {STATUS_CONFIG[option].label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Guest */}
-
-              <section>
-                <h3 className="mb-3 text-sm font-semibold text-[#d4af37]">
-                  Guest Information
-                </h3>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <DetailItem
-                    icon={User}
-                    label="Name"
-                    value={selectedReservation.name}
-                  />
-
-                  <DetailItem
-                    icon={Phone}
-                    label="Phone"
-                    value={selectedReservation.phone}
-                  />
-
-                  <DetailItem
-                    icon={Mail}
-                    label="Email"
-                    value={selectedReservation.email || "Not provided"}
-                  />
-
-                  <DetailItem
-                    icon={Users}
-                    label="Guests"
-                    value={`${selectedReservation.guests} ${
-                      selectedReservation.guests === 1 ? "Guest" : "Guests"
-                    }`}
-                  />
-                </div>
-              </section>
-
-              {/* Booking */}
-
-              <section>
-                <h3 className="mb-3 text-sm font-semibold text-[#d4af37]">
-                  Booking Information
-                </h3>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <DetailItem
-                    icon={CalendarDays}
-                    label="Reservation Date"
-                    value={formatFullDate(selectedReservation.date)}
-                  />
-
-                  <DetailItem
-                    icon={Clock3}
-                    label="Reservation Time"
-                    value={selectedReservation.time}
-                  />
-                </div>
-              </section>
-
-              {/* Special Note */}
-
-              {selectedReservation.specialNote && (
-                <section>
-                  <h3 className="mb-3 text-sm font-semibold text-[#d4af37]">
-                    Special Note
-                  </h3>
-
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-sm leading-6 text-white/60">
-                      {selectedReservation.specialNote}
-                    </p>
-                  </div>
-                </section>
-              )}
-
-              {/* Created */}
-
-              <div className="border-t border-white/10 pt-4">
-                <p className="text-xs text-white/30">
-                  Reservation created on{" "}
-                  {formatFullDate(selectedReservation.createdAt)}
-                </p>
-              </div>
-            </div>
-          </div>
+            <ArrowLeft size={16} />
+            Back to Dashboard
+          </Link>
         </div>
-      )}
+      </div>
     </main>
   );
 }
 
-/* ===================================================== */
-/* STAT CARD */
-/* ===================================================== */
+/*
+|--------------------------------------------------------------------------
+| Stat Card
+|--------------------------------------------------------------------------
+*/
 
-function StatCard({ label, value, icon: Icon, iconClass = "text-[#d4af37]" }) {
+function StatCard({ title, value, icon: Icon }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-5 transition hover:border-[#d4af37]/20">
+    <div className="rounded-2xl border border-white/10 bg-[#111] p-5 transition hover:border-[#d4af37]/20">
       <div className="flex items-center justify-between">
-        <div
-          className={`flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.04] ${iconClass}`}
-        >
-          <Icon className="h-5 w-5" />
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#d4af37]/10 text-[#d4af37]">
+          <Icon size={19} />
         </div>
 
-        <span className="text-2xl font-semibold">{value}</span>
+        <span className="text-xs uppercase tracking-wider text-white/20">
+          ST
+        </span>
       </div>
 
-      <p className="mt-4 text-sm text-white/40">{label}</p>
+      <p className="mt-5 text-xs uppercase tracking-wider text-white/30">
+        {title}
+      </p>
+
+      <p className="mt-1 text-2xl font-bold">{value}</p>
     </div>
   );
 }
 
-/* ===================================================== */
-/* INFO BOX */
-/* ===================================================== */
+/*
+|--------------------------------------------------------------------------
+| Info Box
+|--------------------------------------------------------------------------
+*/
 
 function InfoBox({ icon: Icon, label, value }) {
   return (
-    <div className="rounded-xl border border-white/5 bg-black/20 p-3">
-      <div className="flex items-center gap-2 text-xs text-white/35">
-        <Icon className="h-3.5 w-3.5 text-[#d4af37]" />
+    <div className="rounded-2xl border border-white/5 bg-[#080808] p-4">
+      <div className="flex items-center gap-2 text-[#d4af37]">
+        <Icon size={16} />
 
-        {label}
+        <span className="text-[11px] font-medium uppercase tracking-wider">
+          {label}
+        </span>
       </div>
 
-      <p className="mt-1 text-sm font-medium text-white/80">{value}</p>
-    </div>
-  );
-}
-
-/* ===================================================== */
-/* DETAIL ITEM */
-/* ===================================================== */
-
-function DetailItem({ icon: Icon, label, value }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.025] p-4">
-      <div className="flex items-center gap-2 text-xs text-white/35">
-        <Icon className="h-3.5 w-3.5 text-[#d4af37]" />
-
-        {label}
-      </div>
-
-      <p className="mt-2 break-words text-sm font-medium text-white/80">
-        {value || "—"}
-      </p>
+      <p className="mt-3 text-sm font-semibold text-white/80">{value}</p>
     </div>
   );
 }

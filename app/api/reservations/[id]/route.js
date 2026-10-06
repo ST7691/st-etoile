@@ -2,33 +2,17 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
-const ALLOWED_STATUSES = ["PENDING", "CONFIRMED", "COMPLETED", "CANCELLED"];
-
-function isStaffOrAdmin(session) {
-  return session?.user?.role === "ADMIN" || session?.user?.role === "STAFF";
-}
-
 export async function PATCH(request, { params }) {
   try {
     const session = await auth();
 
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         {
           success: false,
           message: "Please login first.",
         },
         { status: 401 },
-      );
-    }
-
-    if (!isStaffOrAdmin(session)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Access denied.",
-        },
-        { status: 403 },
       );
     }
 
@@ -46,23 +30,27 @@ export async function PATCH(request, { params }) {
 
     const body = await request.json();
 
-    const status = String(body.status || "")
+    const action = String(body.action || "")
       .trim()
       .toUpperCase();
 
-    if (!ALLOWED_STATUSES.includes(status)) {
+    if (action !== "CANCEL") {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid reservation status.",
+          message: "Invalid reservation action.",
         },
         { status: 400 },
       );
     }
 
-    const reservation = await prisma.reservation.findUnique({
+    // IMPORTANT:
+    // Find reservation by BOTH id and current user ID.
+    // This prevents users from changing another customer's reservation.
+    const reservation = await prisma.reservation.findFirst({
       where: {
         id,
+        userId: session.user.id,
       },
     });
 
@@ -76,38 +64,41 @@ export async function PATCH(request, { params }) {
       );
     }
 
+    // Only pending and confirmed reservations can be cancelled.
+    if (
+      reservation.status !== "PENDING" &&
+      reservation.status !== "CONFIRMED"
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "This reservation can no longer be cancelled.",
+        },
+        { status: 400 },
+      );
+    }
+
     const updatedReservation = await prisma.reservation.update({
       where: {
-        id,
+        id: reservation.id,
       },
       data: {
-        status,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-            image: true,
-          },
-        },
+        status: "CANCELLED",
       },
     });
 
     return NextResponse.json({
       success: true,
-      message: `Reservation marked as ${status}.`,
+      message: "Reservation cancelled successfully.",
       data: updatedReservation,
     });
   } catch (error) {
-    console.error("ADMIN RESERVATION PATCH ERROR:", error);
+    console.error("CUSTOMER RESERVATION CANCEL ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to update reservation status.",
+        message: "Failed to cancel reservation.",
       },
       { status: 500 },
     );
