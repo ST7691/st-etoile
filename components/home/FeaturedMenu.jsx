@@ -10,35 +10,77 @@ import Swal from "sweetalert2";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const categories = [
-  {
-    label: "All",
-    value: "",
-  },
-  {
-    label: "Starters",
-    value: "starters",
-  },
-  {
-    label: "Main Course",
-    value: "main-course",
-  },
-  {
-    label: "Desserts",
-    value: "desserts",
-  },
-  {
-    label: "Drinks",
-    value: "drinks",
-  },
-];
-
 export default function FeaturedMenu() {
   const [menuItems, setMenuItems] = useState([]);
+  const [categories, setCategories] = useState([
+    {
+      label: "All",
+      value: "",
+    },
+  ]);
+
   const [activeCategory, setActiveCategory] = useState("");
   const [loading, setLoading] = useState(true);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [favorites, setFavorites] = useState([]);
   const [addingItemId, setAddingItemId] = useState(null);
+
+  // ==========================================
+  // FETCH CATEGORIES
+  // ==========================================
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  async function fetchCategories() {
+    try {
+      setCategoriesLoading(true);
+
+      const response = await fetch("/api/categories", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error(`Categories API failed with status ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.message || "Failed to fetch categories");
+      }
+
+      const databaseCategories = Array.isArray(result.data) ? result.data : [];
+
+      const dynamicCategories = databaseCategories
+        .filter((category) => category?.slug && category?.name)
+        .map((category) => ({
+          label: category.name,
+          value: category.slug,
+        }));
+
+      setCategories([
+        {
+          label: "All",
+          value: "",
+        },
+        ...dynamicCategories,
+      ]);
+    } catch (error) {
+      console.error("Categories fetch error:", error);
+
+      // Keep All category available even if category API fails.
+      setCategories([
+        {
+          label: "All",
+          value: "",
+        },
+      ]);
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }
 
   // ==========================================
   // FETCH MENU
@@ -256,24 +298,35 @@ export default function FeaturedMenu() {
             CATEGORIES
         ========================================== */}
         <div className="mt-10 flex flex-wrap justify-center gap-3">
-          {categories.map((category) => {
-            const isActive = activeCategory === category.value;
+          {categoriesLoading ? (
+            <>
+              {[1, 2, 3, 4].map((item) => (
+                <div
+                  key={item}
+                  className="h-10 w-24 animate-pulse rounded-full border border-white/10 bg-white/[0.03]"
+                />
+              ))}
+            </>
+          ) : (
+            categories.map((category) => {
+              const isActive = activeCategory === category.value;
 
-            return (
-              <button
-                key={category.value || "all"}
-                type="button"
-                onClick={() => setActiveCategory(category.value)}
-                className={`rounded-full px-5 py-2.5 text-sm transition ${
-                  isActive
-                    ? "bg-[#d4af37] text-[#080808]"
-                    : "border border-white/10 bg-white/[0.03] text-white/60 hover:border-[#d4af37]/50 hover:text-[#d4af37]"
-                }`}
-              >
-                {category.label}
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={category.value || "all"}
+                  type="button"
+                  onClick={() => setActiveCategory(category.value)}
+                  className={`rounded-full px-5 py-2.5 text-sm transition ${
+                    isActive
+                      ? "bg-[#d4af37] text-[#080808]"
+                      : "border border-white/10 bg-white/[0.03] text-white/60 hover:border-[#d4af37]/50 hover:text-[#d4af37]"
+                  }`}
+                >
+                  {category.label}
+                </button>
+              );
+            })
+          )}
         </div>
 
         {/* ==========================================

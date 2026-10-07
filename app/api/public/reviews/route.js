@@ -1,43 +1,12 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-
-const ALLOWED_ROLES = ["ADMIN", "STAFF"];
-
-function isAuthorized(session) {
-  const role = String(session?.user?.role || "").toUpperCase();
-
-  return Boolean(session?.user && ALLOWED_ROLES.includes(role));
-}
 
 export async function GET(request) {
   try {
-    const session = await auth();
-
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Please login first.",
-        },
-        { status: 401 },
-      );
-    }
-
-    if (!isAuthorized(session)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Access denied.",
-        },
-        { status: 403 },
-      );
-    }
-
     const { searchParams } = new URL(request.url);
 
-    const search = searchParams.get("search")?.trim() || "";
     const ratingParam = searchParams.get("rating") || "ALL";
+    const search = searchParams.get("search")?.trim() || "";
 
     const where = {};
 
@@ -58,7 +27,7 @@ export async function GET(request) {
       where.rating = rating;
     }
 
-    // Search filter
+    // Search
     if (search) {
       where.OR = [
         {
@@ -71,16 +40,6 @@ export async function GET(request) {
           user: {
             is: {
               name: {
-                contains: search,
-                mode: "insensitive",
-              },
-            },
-          },
-        },
-        {
-          user: {
-            is: {
-              email: {
                 contains: search,
                 mode: "insensitive",
               },
@@ -117,7 +76,6 @@ export async function GET(request) {
           select: {
             id: true,
             name: true,
-            email: true,
             image: true,
           },
         },
@@ -136,7 +94,7 @@ export async function GET(request) {
     const totalReviews = reviews.length;
 
     const totalRating = reviews.reduce(
-      (total, review) => total + Number(review.rating || 0),
+      (sum, review) => sum + Number(review.rating || 0),
       0,
     );
 
@@ -162,92 +120,12 @@ export async function GET(request) {
       },
     });
   } catch (error) {
-    console.error("ADMIN REVIEWS GET ERROR:", error);
+    console.error("PUBLIC REVIEWS GET ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
         message: "Failed to load reviews.",
-      },
-      { status: 500 },
-    );
-  }
-}
-
-export async function DELETE(request) {
-  try {
-    const session = await auth();
-
-    if (!session?.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Please login first.",
-        },
-        { status: 401 },
-      );
-    }
-
-    if (!isAuthorized(session)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Access denied.",
-        },
-        { status: 403 },
-      );
-    }
-
-    const { searchParams } = new URL(request.url);
-
-    const reviewId = searchParams.get("id");
-
-    if (!reviewId) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Review ID is required.",
-        },
-        { status: 400 },
-      );
-    }
-
-    const existingReview = await prisma.review.findUnique({
-      where: {
-        id: reviewId,
-      },
-      select: {
-        id: true,
-      },
-    });
-
-    if (!existingReview) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Review not found.",
-        },
-        { status: 404 },
-      );
-    }
-
-    await prisma.review.delete({
-      where: {
-        id: reviewId,
-      },
-    });
-
-    return NextResponse.json({
-      success: true,
-      message: "Review deleted successfully.",
-    });
-  } catch (error) {
-    console.error("ADMIN REVIEW DELETE ERROR:", error);
-
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to delete review.",
       },
       { status: 500 },
     );

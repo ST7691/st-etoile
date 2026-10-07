@@ -5,6 +5,34 @@ import { stripe } from "@/lib/stripe";
 
 export const runtime = "nodejs";
 
+/**
+ * Check whether a value is a valid HTTP/HTTPS URL.
+ */
+function isValidHttpUrl(value) {
+  try {
+    const url = new URL(value);
+
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get and validate application URL.
+ */
+function getAppUrl() {
+  const rawUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+  if (!isValidHttpUrl(rawUrl)) {
+    throw new Error(
+      "Invalid NEXT_PUBLIC_APP_URL. Use http://localhost:3000 for local development.",
+    );
+  }
+
+  return new URL(rawUrl).origin;
+}
+
 export async function POST(request) {
   try {
     // -----------------------------------------
@@ -46,10 +74,12 @@ export async function POST(request) {
         id: orderId,
         userId: session.user.id,
       },
+
       include: {
         user: true,
         deliveryAddress: true,
         payment: true,
+
         items: {
           include: {
             menuItem: true,
@@ -102,43 +132,85 @@ export async function POST(request) {
     }
 
     // -----------------------------------------
-    // 5. App URL
+    // 5. Validate order items
     // -----------------------------------------
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    if (!order.items?.length) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "This order has no items.",
+        },
+        { status: 400 },
+      );
+    }
 
     // -----------------------------------------
-    // 6. Create Stripe line items
+    // 6. App URL
     // -----------------------------------------
-    const lineItems = order.items.map((item) => ({
-      price_data: {
-        currency: "usd",
+    const appUrl = getAppUrl();
 
-        product_data: {
-          name: item.menuItem.name,
+    const successUrl =
+      `${appUrl}/payment/stripe-success` + `?session_id={CHECKOUT_SESSION_ID}`;
 
-          description:
-            item.menuItem.description?.slice(0, 200) ||
-            "ST Restaurant menu item",
+    const cancelUrl = `${appUrl}/orders/${order.id}`;
 
-          ...(item.menuItem.image
-            ? {
-                images: [item.menuItem.image],
-              }
-            : {}),
+    // -----------------------------------------
+    // 7. Create Stripe line items
+    // -----------------------------------------
+    //
+    // IMPORTANT:
+    // Do NOT send menuItem.image directly.
+    //
+    // Some database images may be:
+    // /uploads/image.jpg
+    // image.jpg
+    // empty strings
+    // invalid URLs
+    //
+    // Stripe requires absolute HTTP/HTTPS URLs.
+    //
+    // Therefore product images are intentionally
+    // omitted from Stripe Checkout.
+    //
+
+    const lineItems = order.items.map((item) => {
+      const unitAmount = Math.round(Number(item.price) * 100);
+
+      if (!Number.isFinite(unitAmount) || unitAmount <= 0) {
+        throw new Error(`Invalid price for menu item: ${item.menuItem.name}`);
+      }
+
+      return {
+        price_data: {
+          currency: "usd",
+
+          product_data: {
+            name: item.menuItem.name,
+
+            description:
+              item.menuItem.description?.slice(0, 200) ||
+              "ST Restaurant menu item",
+          },
+
+          unit_amount: unitAmount,
         },
 
-        unit_amount: Math.round(Number(item.price) * 100),
-      },
-
-      quantity: item.quantity,
-    }));
+        quantity: item.quantity,
+      };
+    });
 
     // -----------------------------------------
-    // 7. Delivery fee
+    // 8. Delivery fee
     // -----------------------------------------
     const deliveryFee = Number(order.deliveryFee || 0);
 
     if (deliveryFee > 0) {
+      const deliveryAmount = Math.round(deliveryFee * 100);
+
+      if (!Number.isFinite(deliveryAmount)) {
+        throw new Error("Invalid delivery fee.");
+      }
+
       lineItems.push({
         price_data: {
           currency: "usd",
@@ -148,7 +220,7 @@ export async function POST(request) {
             description: "ST Restaurant home delivery",
           },
 
-          unit_amount: Math.round(deliveryFee * 100),
+          unit_amount: deliveryAmount,
         },
 
         quantity: 1,
@@ -156,23 +228,21 @@ export async function POST(request) {
     }
 
     // -----------------------------------------
-    // 8. Discount
+    // 9. Discount
     // -----------------------------------------
-    //
-    // IMPORTANT:
-    // Do NOT add negative Stripe line items.
-    //
-    // We will handle discounts using Stripe coupons
-    // if your current Prisma order contains discount.
-    //
-
     const discount = Number(order.discount || 0);
 
-    let discounts = undefined;
+    let discounts;
 
     if (discount > 0) {
+      const discountAmount = Math.round(discount * 100);
+
+      if (!Number.isFinite(discountAmount) || discountAmount <= 0) {
+        throw new Error("Invalid discount amount.");
+      }
+
       const coupon = await stripe.coupons.create({
-        amount_off: Math.round(discount * 100),
+        amount_off: discountAmount,
         currency: "usd",
         duration: "once",
         name: `ST Restaurant Discount - ${order.orderNumber}`,
@@ -186,17 +256,17 @@ export async function POST(request) {
     }
 
     // -----------------------------------------
-    // 9. Transaction ID
+    // 10. Transaction ID
     // -----------------------------------------
     const transactionId = `ST-${order.orderNumber}-${Date.now()}`;
 
     // -----------------------------------------
-    // 10. Create Stripe Checkout Session
+    // 11. Create Stripe Checkout Session
     // -----------------------------------------
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "payment",
 
-      customer_email: order.user?.email || session.user.email,
+      customer_email: order.user?.email || session.user.email || undefined,
 
       line_items: lineItems,
 
@@ -209,11 +279,9 @@ export async function POST(request) {
         transactionId,
       },
 
-      success_url:
-        `${appUrl}/payment/stripe-success` +
-        `?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: successUrl,
 
-      cancel_url: `${appUrl}/orders/${order.id}`,
+      cancel_url: cancelUrl,
 
       billing_address_collection: "auto",
 
@@ -233,7 +301,14 @@ export async function POST(request) {
     });
 
     // -----------------------------------------
-    // 11. Create / update Payment
+    // 12. Verify Stripe checkout URL
+    // -----------------------------------------
+    if (!checkoutSession.url || !isValidHttpUrl(checkoutSession.url)) {
+      throw new Error("Stripe did not return a valid checkout URL.");
+    }
+
+    // -----------------------------------------
+    // 13. Create / update Payment
     // -----------------------------------------
     await prisma.payment.upsert({
       where: {
@@ -257,7 +332,7 @@ export async function POST(request) {
     });
 
     // -----------------------------------------
-    // 12. Return checkout URL
+    // 14. Return checkout URL
     // -----------------------------------------
     return NextResponse.json({
       success: true,
@@ -273,7 +348,6 @@ export async function POST(request) {
     return NextResponse.json(
       {
         success: false,
-
         message: error?.message || "Unable to create Stripe checkout session.",
       },
       { status: 500 },

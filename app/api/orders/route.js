@@ -1,7 +1,7 @@
-
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { createNotification } from "@/lib/notifications";
 
 /*
 |--------------------------------------------------------------------------
@@ -11,11 +11,7 @@ import { prisma } from "@/lib/prisma";
 
 const DELIVERY_FEE = 100;
 
-const ALLOWED_PAYMENT_METHODS = [
-  "COD",
-  "SSLCOMMERZ",
-  "STRIPE",
-];
+const ALLOWED_PAYMENT_METHODS = ["COD", "SSLCOMMERZ", "STRIPE"];
 
 /*
 |--------------------------------------------------------------------------
@@ -24,13 +20,9 @@ const ALLOWED_PAYMENT_METHODS = [
 */
 
 function generateOrderNumber() {
-  const timestamp = Date.now()
-    .toString()
-    .slice(-8);
+  const timestamp = Date.now().toString().slice(-8);
 
-  const random = Math.floor(
-    100 + Math.random() * 900
-  );
+  const random = Math.floor(100 + Math.random() * 900);
 
   return `ST-${timestamp}-${random}`;
 }
@@ -51,80 +43,78 @@ export async function GET() {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Authentication required.",
+          message: "Authentication required.",
         },
         {
           status: 401,
-        }
+        },
       );
     }
 
-    const orders =
-      await prisma.order.findMany({
-        where: {
-          userId: session.user.id,
-        },
+    const orders = await prisma.order.findMany({
+      where: {
+        userId: session.user.id,
+      },
 
-        select: {
-          id: true,
-          orderNumber: true,
-          status: true,
-          paymentMethod: true,
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        paymentMethod: true,
 
-          subtotal: true,
-          deliveryFee: true,
-          discount: true,
-          total: true,
+        subtotal: true,
+        deliveryFee: true,
+        discount: true,
+        total: true,
 
-          notes: true,
+        notes: true,
 
-          createdAt: true,
-          updatedAt: true,
+        createdAt: true,
+        updatedAt: true,
 
-          items: {
-            select: {
-              id: true,
-              quantity: true,
-              price: true,
+        items: {
+          select: {
+            id: true,
+            quantity: true,
+            price: true,
 
-              menuItem: {
-                select: {
-                  id: true,
-                  name: true,
-                  image: true,
-                },
+            menuItem: {
+              select: {
+                id: true,
+                name: true,
+                image: true,
               },
             },
           },
+        },
 
-          payment: {
-            select: {
-              status: true,
-              method: true,
-              transactionId: true,
-              amount: true,
-              paidAt: true,
-            },
-          },
-
-          deliveryAddress: {
-            select: {
-              fullName: true,
-              phone: true,
-              address: true,
-              city: true,
-              area: true,
-              postalCode: true,
-              instructions: true,
-            },
+        payment: {
+          select: {
+            status: true,
+            method: true,
+            transactionId: true,
+            amount: true,
+            paidAt: true,
           },
         },
 
-        orderBy: {
-          createdAt: "desc",
+        deliveryAddress: {
+          select: {
+            fullName: true,
+            phone: true,
+            address: true,
+            city: true,
+            area: true,
+            postalCode: true,
+            instructions: true,
+          },
         },
-      });
+      },
+
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
 
     return NextResponse.json({
       success: true,
@@ -132,20 +122,16 @@ export async function GET() {
       count: orders.length,
     });
   } catch (error) {
-    console.error(
-      "GET ORDERS ERROR:",
-      error
-    );
+    console.error("GET ORDERS ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
-        message:
-          "Failed to load orders.",
+        message: "Failed to load orders.",
       },
       {
         status: 500,
-      }
+      },
     );
   }
 }
@@ -177,12 +163,11 @@ export async function POST(request) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Authentication required.",
+          message: "Authentication required.",
         },
         {
           status: 401,
-        }
+        },
       );
     }
 
@@ -212,67 +197,51 @@ export async function POST(request) {
      * ---------------------------------------------------------------
      */
 
-    if (
-      !fullName ||
-      !String(fullName).trim()
-    ) {
+    if (!fullName || !String(fullName).trim()) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Full name is required.",
+          message: "Full name is required.",
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
-    if (
-      !phone ||
-      !String(phone).trim()
-    ) {
+    if (!phone || !String(phone).trim()) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Phone number is required.",
+          message: "Phone number is required.",
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
-    if (
-      !address ||
-      !String(address).trim()
-    ) {
+    if (!address || !String(address).trim()) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Delivery address is required.",
+          message: "Delivery address is required.",
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
-    if (
-      !city ||
-      !String(city).trim()
-    ) {
+    if (!city || !String(city).trim()) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "City is required.",
+          message: "City is required.",
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
@@ -282,20 +251,15 @@ export async function POST(request) {
      * ---------------------------------------------------------------
      */
 
-    if (
-      !ALLOWED_PAYMENT_METHODS.includes(
-        paymentMethod
-      )
-    ) {
+    if (!ALLOWED_PAYMENT_METHODS.includes(paymentMethod)) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Invalid payment method.",
+          message: "Invalid payment method.",
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
@@ -305,35 +269,29 @@ export async function POST(request) {
      * ---------------------------------------------------------------
      */
 
-    const cart =
-      await prisma.cart.findUnique({
-        where: {
-          userId: session.user.id,
-        },
+    const cart = await prisma.cart.findUnique({
+      where: {
+        userId: session.user.id,
+      },
 
-        include: {
-          items: {
-            include: {
-              menuItem: true,
-            },
+      include: {
+        items: {
+          include: {
+            menuItem: true,
           },
         },
-      });
+      },
+    });
 
-    if (
-      !cart ||
-      !cart.items ||
-      cart.items.length === 0
-    ) {
+    if (!cart || !cart.items || cart.items.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Your cart is empty.",
+          message: "Your cart is empty.",
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
@@ -349,22 +307,17 @@ export async function POST(request) {
      * ---------------------------------------------------------------
      */
 
-    const invalidCartItem =
-      cart.items.find(
-        (item) =>
-          !item.menuItem
-      );
+    const invalidCartItem = cart.items.find((item) => !item.menuItem);
 
     if (invalidCartItem) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "One or more items in your cart no longer exist.",
+          message: "One or more items in your cart no longer exist.",
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
@@ -374,12 +327,9 @@ export async function POST(request) {
      * ---------------------------------------------------------------
      */
 
-    const unavailableItem =
-      cart.items.find(
-        (item) =>
-          item.menuItem.available !==
-          true
-      );
+    const unavailableItem = cart.items.find(
+      (item) => item.menuItem.available !== true,
+    );
 
     if (unavailableItem) {
       return NextResponse.json(
@@ -394,7 +344,7 @@ export async function POST(request) {
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
@@ -404,25 +354,20 @@ export async function POST(request) {
      * ---------------------------------------------------------------
      */
 
-    const invalidQuantity =
-      cart.items.find(
-        (item) =>
-          !Number.isInteger(
-            Number(item.quantity)
-          ) ||
-          Number(item.quantity) <= 0
-      );
+    const invalidQuantity = cart.items.find(
+      (item) =>
+        !Number.isInteger(Number(item.quantity)) || Number(item.quantity) <= 0,
+    );
 
     if (invalidQuantity) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "One or more cart quantities are invalid.",
+          message: "One or more cart quantities are invalid.",
         },
         {
           status: 400,
-        }
+        },
       );
     }
 
@@ -432,24 +377,13 @@ export async function POST(request) {
      * ---------------------------------------------------------------
      */
 
-    const subtotal =
-      cart.items.reduce(
-        (total, item) => {
-          const price = Number(
-            item.menuItem.price
-          );
+    const subtotal = cart.items.reduce((total, item) => {
+      const price = Number(item.menuItem.price);
 
-          const quantity = Number(
-            item.quantity
-          );
+      const quantity = Number(item.quantity);
 
-          return (
-            total +
-            price * quantity
-          );
-        },
-        0
-      );
+      return total + price * quantity;
+    }, 0);
 
     /*
      * ---------------------------------------------------------------
@@ -457,15 +391,11 @@ export async function POST(request) {
      * ---------------------------------------------------------------
      */
 
-    const deliveryFee =
-      DELIVERY_FEE;
+    const deliveryFee = DELIVERY_FEE;
 
     const discount = 0;
 
-    const total =
-      subtotal +
-      deliveryFee -
-      discount;
+    const total = subtotal + deliveryFee - discount;
 
     /*
      * ---------------------------------------------------------------
@@ -473,8 +403,7 @@ export async function POST(request) {
      * ---------------------------------------------------------------
      */
 
-    const orderNumber =
-      generateOrderNumber();
+    const orderNumber = generateOrderNumber();
 
     /*
      * ---------------------------------------------------------------
@@ -492,178 +421,158 @@ export async function POST(request) {
      * ---------------------------------------------------------------
      */
 
-    const order =
-      await prisma.$transaction(
-        async (tx) => {
-          /*
-           * Delivery address
-           */
+    const order = await prisma.$transaction(async (tx) => {
+      /*
+       * ---------------------------------------------------------
+       * Delivery address
+       * ---------------------------------------------------------
+       */
 
-          const deliveryAddress =
-            await tx.deliveryAddress.create(
-              {
-                data: {
-                  fullName:
-                    String(
-                      fullName
-                    ).trim(),
+      const deliveryAddress = await tx.deliveryAddress.create({
+        data: {
+          fullName: String(fullName).trim(),
 
-                  phone:
-                    String(
-                      phone
-                    ).trim(),
+          phone: String(phone).trim(),
 
-                  address:
-                    String(
-                      address
-                    ).trim(),
+          address: String(address).trim(),
 
-                  city:
-                    String(
-                      city
-                    ).trim(),
+          city: String(city).trim(),
 
-                  area:
-                    area
-                      ? String(
-                          area
-                        ).trim()
-                      : null,
+          area: area ? String(area).trim() : null,
 
-                  postalCode:
-                    postalCode
-                      ? String(
-                          postalCode
-                        ).trim()
-                      : null,
+          postalCode: postalCode ? String(postalCode).trim() : null,
 
-                  instructions:
-                    instructions
-                      ? String(
-                          instructions
-                        ).trim()
-                      : null,
-                },
-              }
-            );
+          instructions: instructions ? String(instructions).trim() : null,
+        },
+      });
+
+      /*
+       * ---------------------------------------------------------
+       * Create order
+       * ---------------------------------------------------------
+       */
+
+      const newOrder = await tx.order.create({
+        data: {
+          orderNumber,
+
+          userId: session.user.id,
+
+          deliveryAddressId: deliveryAddress.id,
 
           /*
-           * Create order
+           * Payment is still pending.
+           *
+           * Stripe/SSLCommerz will change
+           * this after successful payment.
            */
 
-          const newOrder =
-            await tx.order.create({
-              data: {
-                orderNumber,
+          status: "PENDING",
 
-                userId:
-                  session.user.id,
+          paymentMethod,
 
-                deliveryAddressId:
-                  deliveryAddress.id,
+          subtotal,
 
-                /*
-                 * Payment is still pending.
-                 *
-                 * Stripe/SSLCommerz will change
-                 * this after successful payment.
-                 */
-                status: "PENDING",
+          deliveryFee,
 
-                paymentMethod,
+          discount,
 
-                subtotal,
+          total,
 
-                deliveryFee,
-
-                discount,
-
-                total,
-
-                notes:
-                  notes
-                    ? String(
-                        notes
-                      ).trim()
-                    : null,
-
-                /*
-                 * Order Items
-                 */
-
-                items: {
-                  create:
-                    cart.items.map(
-                      (item) => ({
-                        quantity:
-                          Number(
-                            item.quantity
-                          ),
-
-                        price:
-                          Number(
-                            item
-                              .menuItem
-                              .price
-                          ),
-
-                        menuItemId:
-                          item
-                            .menuItem
-                            .id,
-                      })
-                    ),
-                },
-
-                /*
-                 * Payment
-                 */
-
-                payment: {
-                  create: {
-                    method:
-                      paymentMethod,
-
-                    status:
-                      "PENDING",
-
-                    amount:
-                      total,
-                  },
-                },
-              },
-
-              include: {
-                items: {
-                  include: {
-                    menuItem: true,
-                  },
-                },
-
-                deliveryAddress: true,
-
-                payment: true,
-              },
-            });
+          notes: notes ? String(notes).trim() : null,
 
           /*
-           * Clear cart only after successful
-           * order creation.
+           * ---------------------------------------------------
+           * Order Items
+           * ---------------------------------------------------
            */
 
-          await tx.cartItem.deleteMany({
-            where: {
-              cartId: cart.id,
+          items: {
+            create: cart.items.map((item) => ({
+              quantity: Number(item.quantity),
+
+              price: Number(item.menuItem.price),
+
+              menuItemId: item.menuItem.id,
+            })),
+          },
+
+          /*
+           * ---------------------------------------------------
+           * Payment
+           * ---------------------------------------------------
+           */
+
+          payment: {
+            create: {
+              method: paymentMethod,
+
+              status: "PENDING",
+
+              amount: total,
             },
-          });
+          },
+        },
 
-          return newOrder;
-        }
-      );
+        include: {
+          items: {
+            include: {
+              menuItem: true,
+            },
+          },
+
+          deliveryAddress: true,
+
+          payment: true,
+        },
+      });
+
+      /*
+       * ---------------------------------------------------------
+       * Clear cart only after successful
+       * order creation.
+       * ---------------------------------------------------------
+       */
+
+      await tx.cartItem.deleteMany({
+        where: {
+          cartId: cart.id,
+        },
+      });
+
+      return newOrder;
+    });
 
     /*
      * ---------------------------------------------------------------
-     * 13. Return successful response
+     * 13. Create admin notification
+     * ---------------------------------------------------------------
+     *
+     * Global notification:
+     * userId = null
+     *
+     * Admin/Staff notification bell
+     * will receive this notification.
+     * ---------------------------------------------------------------
+     */
+
+    const notification = await createNotification({
+      type: "ORDER",
+
+      title: "New Order Received",
+
+      message: `Order #${order.orderNumber} has been placed. Total: ৳${Number(
+        order.total,
+      ).toFixed(2)}.`,
+
+      link: "/dashboard/orders",
+
+      userId: null,
+    });
+
+    /*
+     * ---------------------------------------------------------------
+     * 14. Return successful response
      * ---------------------------------------------------------------
      */
 
@@ -672,18 +581,19 @@ export async function POST(request) {
         success: true,
 
         message:
-          paymentMethod ===
-          "COD"
+          paymentMethod === "COD"
             ? "Order placed successfully."
             : "Order created successfully. Payment is pending.",
 
         order,
 
         cartItemCount: 0,
+
+        notificationCreated: Boolean(notification),
       },
       {
         status: 201,
-      }
+      },
     );
   } catch (error) {
     /*
@@ -692,22 +602,16 @@ export async function POST(request) {
      * ---------------------------------------------------------------
      */
 
-    console.error(
-      "ORDER CREATE ERROR:",
-      error
-    );
+    console.error("ORDER CREATE ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
-        message:
-          error?.message ||
-          "Failed to create order.",
+        message: error?.message || "Failed to create order.",
       },
       {
         status: 500,
-      }
+      },
     );
   }
 }
-

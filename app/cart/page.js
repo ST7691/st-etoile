@@ -19,15 +19,26 @@ export default function CartPage() {
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
 
-  async function fetchCart() {
+  async function fetchCart({ showLoader = true } = {}) {
     try {
-      setLoading(true);
+      if (showLoader) {
+        setLoading(true);
+      }
 
       const response = await fetch("/api/cart", {
+        method: "GET",
         cache: "no-store",
       });
 
-      const result = await response.json();
+      const text = await response.text();
+
+      let result = null;
+
+      try {
+        result = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error("Invalid cart response from server.");
+      }
 
       if (response.status === 401) {
         window.location.href = "/login?callbackUrl=/cart";
@@ -51,18 +62,73 @@ export default function CartPage() {
         confirmButtonColor: "#d4af37",
       });
     } finally {
-      setLoading(false);
+      if (showLoader) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
     fetchCart();
+
+    // Receive instant cart updates from AddToCartButton/Navbar
+    function handleCartUpdated(event) {
+      const updatedCart = event.detail?.cart;
+
+      if (updatedCart) {
+        setCart(updatedCart);
+        setLoading(false);
+      } else {
+        // Fallback: silently sync from server
+        fetchCart({ showLoader: false });
+      }
+    }
+
+    window.addEventListener("cart-updated", handleCartUpdated);
+
+    return () => {
+      window.removeEventListener("cart-updated", handleCartUpdated);
+    };
   }, []);
 
   async function updateQuantity(itemId, quantity) {
     if (quantity < 1) {
       return removeItem(itemId);
     }
+
+    const previousCart = cart;
+
+    // Optimistic UI update
+    setCart((currentCart) => {
+      if (!currentCart) return currentCart;
+
+      const updatedItems = currentCart.items.map((item) => {
+        if (item.id !== itemId) return item;
+
+        return {
+          ...item,
+          quantity,
+        };
+      });
+
+      const subtotal = updatedItems.reduce(
+        (total, item) =>
+          total + Number(item.menuItem?.price || 0) * item.quantity,
+        0,
+      );
+
+      const itemCount = updatedItems.reduce(
+        (total, item) => total + item.quantity,
+        0,
+      );
+
+      return {
+        ...currentCart,
+        items: updatedItems,
+        subtotal,
+        itemCount,
+      };
+    });
 
     try {
       setUpdatingId(itemId);
@@ -77,20 +143,37 @@ export default function CartPage() {
         }),
       });
 
-      const result = await response.json();
+      const text = await response.text();
+
+      let result = null;
+
+      try {
+        result = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error("Invalid cart response from server.");
+      }
 
       if (!response.ok) {
         throw new Error(result?.message || "Failed to update cart");
       }
 
-      setCart(result?.data || null);
+      setCart(result?.data || previousCart);
 
-      window.dispatchEvent(new Event("cart-updated"));
+      window.dispatchEvent(
+        new CustomEvent("cart-updated", {
+          detail: {
+            cart: result?.data || previousCart,
+          },
+        }),
+      );
     } catch (error) {
+      // Rollback if API fails
+      setCart(previousCart);
+
       Swal.fire({
         icon: "error",
         title: "Update Failed",
-        text: error.message,
+        text: error.message || "Unable to update your cart.",
         background: "#111",
         color: "#f5f1e8",
         confirmButtonColor: "#d4af37",
@@ -101,6 +184,35 @@ export default function CartPage() {
   }
 
   async function removeItem(itemId) {
+    const previousCart = cart;
+
+    // Optimistic remove
+    setCart((currentCart) => {
+      if (!currentCart) return currentCart;
+
+      const updatedItems = currentCart.items.filter(
+        (item) => item.id !== itemId,
+      );
+
+      const subtotal = updatedItems.reduce(
+        (total, item) =>
+          total + Number(item.menuItem?.price || 0) * item.quantity,
+        0,
+      );
+
+      const itemCount = updatedItems.reduce(
+        (total, item) => total + item.quantity,
+        0,
+      );
+
+      return {
+        ...currentCart,
+        items: updatedItems,
+        subtotal,
+        itemCount,
+      };
+    });
+
     try {
       setUpdatingId(itemId);
 
@@ -108,20 +220,37 @@ export default function CartPage() {
         method: "DELETE",
       });
 
-      const result = await response.json();
+      const text = await response.text();
+
+      let result = null;
+
+      try {
+        result = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error("Invalid cart response from server.");
+      }
 
       if (!response.ok) {
         throw new Error(result?.message || "Failed to remove item");
       }
 
-      setCart(result?.data || null);
+      setCart(result?.data || previousCart);
 
-      window.dispatchEvent(new Event("cart-updated"));
+      window.dispatchEvent(
+        new CustomEvent("cart-updated", {
+          detail: {
+            cart: result?.data || previousCart,
+          },
+        }),
+      );
     } catch (error) {
+      // Rollback
+      setCart(previousCart);
+
       Swal.fire({
         icon: "error",
         title: "Remove Failed",
-        text: error.message,
+        text: error.message || "Unable to remove item.",
         background: "#111",
         color: "#f5f1e8",
         confirmButtonColor: "#d4af37",
@@ -186,7 +315,6 @@ export default function CartPage() {
   return (
     <main className="min-h-screen bg-[#080808] px-4 pb-20 pt-32 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        {/* Header */}
         <div className="mb-10">
           <Link
             href="/menu"
@@ -211,7 +339,6 @@ export default function CartPage() {
         </div>
 
         <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
-          {/* Cart Items */}
           <div className="space-y-4">
             {items.map((item) => {
               const menuItem = item.menuItem;
@@ -225,7 +352,6 @@ export default function CartPage() {
                   className="rounded-2xl border border-[#d4af37]/15 bg-[#111] p-4 sm:p-5"
                 >
                   <div className="flex gap-4">
-                    {/* Image */}
                     <Link
                       href={`/menu/${menuItem?.slug}`}
                       className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl sm:h-32 sm:w-32"
@@ -245,7 +371,6 @@ export default function CartPage() {
                       )}
                     </Link>
 
-                    {/* Details */}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -275,7 +400,6 @@ export default function CartPage() {
                       </p>
 
                       <div className="mt-4 flex items-center justify-between gap-3">
-                        {/* Quantity */}
                         <div className="flex items-center rounded-full border border-[#d4af37]/20 bg-[#080808]">
                           <button
                             onClick={() =>
@@ -306,7 +430,6 @@ export default function CartPage() {
                           </button>
                         </div>
 
-                        {/* Total */}
                         <p className="text-lg font-bold text-[#d4af37]">
                           ৳{itemTotal.toLocaleString()}
                         </p>
@@ -318,7 +441,6 @@ export default function CartPage() {
             })}
           </div>
 
-          {/* Summary */}
           <aside className="lg:sticky lg:top-28 lg:self-start">
             <div className="rounded-2xl border border-[#d4af37]/20 bg-[#111] p-6 sm:p-7">
               <p className="mb-2 text-sm uppercase tracking-[0.25em] text-[#d4af37]">

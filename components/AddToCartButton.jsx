@@ -1,4 +1,3 @@
-
 "use client";
 
 import { ShoppingBag, Loader2 } from "lucide-react";
@@ -6,32 +5,55 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 
-export default function AddToCartButton({
-  menuItemId,
-  disabled = false,
-}) {
+export default function AddToCartButton({ menuItemId, disabled = false }) {
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
 
   async function addToCart() {
+    if (loading || disabled) return;
+
     try {
       setLoading(true);
 
+      // ==========================================
+      // INSTANT UI EVENT
+      // ==========================================
+
+      window.dispatchEvent(
+        new CustomEvent("cart-loading", {
+          detail: {
+            menuItemId,
+          },
+        }),
+      );
+
+      // ==========================================
+      // API REQUEST
+      // ==========================================
+
       const response = await fetch("/api/cart", {
         method: "POST",
-
         headers: {
           "Content-Type": "application/json",
         },
-
         body: JSON.stringify({
           menuItemId,
           quantity: 1,
         }),
+        cache: "no-store",
       });
 
-      const result = await response.json();
+      // Read response safely
+      const text = await response.text();
+
+      let result = null;
+
+      try {
+        result = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error("Invalid response from cart server.");
+      }
 
       // ==========================================
       // NOT LOGGED IN
@@ -51,27 +73,44 @@ export default function AddToCartButton({
         });
 
         if (confirm.isConfirmed) {
-          router.push("/login");
+          router.push(
+            `/login?callbackUrl=${encodeURIComponent(
+              window.location.pathname,
+            )}`,
+          );
         }
 
         return;
       }
 
       // ==========================================
-      // OTHER ERROR
+      // API ERROR
       // ==========================================
 
-      if (!response.ok) {
-        throw new Error(
-          result.message || "Unable to add item to cart."
-        );
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.message || "Unable to add item to cart.");
       }
+
+      // ==========================================
+      // UPDATE CART STATE
+      // ==========================================
+
+      const updatedCart = result?.data || null;
+
+      window.dispatchEvent(
+        new CustomEvent("cart-updated", {
+          detail: {
+            cart: updatedCart,
+            menuItemId,
+          },
+        }),
+      );
 
       // ==========================================
       // SUCCESS
       // ==========================================
 
-      await Swal.fire({
+      const confirm = await Swal.fire({
         icon: "success",
         title: "Added to Cart",
         text: "Your dish has been added to your cart.",
@@ -81,26 +120,46 @@ export default function AddToCartButton({
         confirmButtonText: "View Cart",
         showCancelButton: true,
         cancelButtonText: "Continue Shopping",
-      }).then((result) => {
-        if (result.isConfirmed) {
-          router.push("/cart");
-        }
+        timer: 2500,
+        timerProgressBar: true,
       });
+
+      if (confirm.isConfirmed) {
+        router.push("/cart");
+      }
     } catch (error) {
       console.error("Add to cart error:", error);
 
-      Swal.fire({
+      // ==========================================
+      // REMOVE LOADING STATE
+      // ==========================================
+
+      window.dispatchEvent(
+        new CustomEvent("cart-loading-failed", {
+          detail: {
+            menuItemId,
+          },
+        }),
+      );
+
+      await Swal.fire({
         icon: "error",
         title: "Unable to Add",
-        text:
-          error.message ||
-          "Something went wrong while adding this item.",
+        text: error?.message || "Something went wrong while adding this item.",
         background: "#111111",
         color: "#ffffff",
         confirmButtonColor: "#d4af37",
       });
     } finally {
       setLoading(false);
+
+      window.dispatchEvent(
+        new CustomEvent("cart-loading-finished", {
+          detail: {
+            menuItemId,
+          },
+        }),
+      );
     }
   }
 
@@ -113,19 +172,14 @@ export default function AddToCartButton({
     >
       {loading ? (
         <>
-          <Loader2
-            size={19}
-            className="animate-spin"
-          />
+          <Loader2 size={19} className="animate-spin" />
           Adding...
         </>
       ) : (
         <>
           <ShoppingBag size={19} />
 
-          {disabled
-            ? "Currently Unavailable"
-            : "Add to Cart"}
+          {disabled ? "Currently Unavailable" : "Add to Cart"}
         </>
       )}
     </button>

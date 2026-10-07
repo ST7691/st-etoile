@@ -5,10 +5,19 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
+
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+
+      // Always show Google account chooser
+      authorization: {
+        params: {
+          prompt: "select_account",
+        },
+      },
     }),
 
     Credentials({
@@ -31,42 +40,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         const email = String(credentials.email).trim().toLowerCase();
-
         const password = String(credentials.password);
 
-        console.log("LOGIN EMAIL:", email);
-
         const user = await prisma.user.findUnique({
-          where: {
-            email,
-          },
+          where: { email },
         });
 
-        if (!user) {
-          console.log("LOGIN FAILED: USER NOT FOUND");
+        if (!user || !user.password) {
           return null;
         }
 
-        if (!user.password) {
-          console.log("LOGIN FAILED: PASSWORD NOT SET");
+        const valid = await bcrypt.compare(password, user.password);
+
+        if (!valid) {
           return null;
         }
-
-        const isValid = await bcrypt.compare(password, user.password);
-
-        if (!isValid) {
-          console.log("LOGIN FAILED: WRONG PASSWORD");
-          return null;
-        }
-
-        console.log("LOGIN SUCCESS:", user.email);
 
         return {
           id: user.id,
           name: user.name,
           email: user.email,
           image: user.image,
-          role: user.role,
+          role: String(user.role || "CUSTOMER")
+            .trim()
+            .toUpperCase(),
         };
       },
     }),
@@ -77,6 +74,60 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
 
   callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+
+        token.role = String(user.role || "CUSTOMER")
+          .trim()
+          .toUpperCase();
+      }
+
+      if (token.email) {
+        const dbUser = await prisma.user.findUnique({
+          where: {
+            email: String(token.email).trim().toLowerCase(),
+          },
+
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            role: true,
+          },
+        });
+
+        if (dbUser) {
+          token.id = dbUser.id;
+          token.name = dbUser.name;
+          token.email = dbUser.email;
+          token.picture = dbUser.image;
+
+          token.role = String(dbUser.role || "CUSTOMER")
+            .trim()
+            .toUpperCase();
+        }
+      }
+
+      return token;
+    },
+
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.id = token.id || null;
+        session.user.name = token.name || null;
+        session.user.email = token.email || null;
+        session.user.image = token.picture || null;
+
+        session.user.role = String(token.role || "CUSTOMER")
+          .trim()
+          .toUpperCase();
+      }
+
+      return session;
+    },
+
     async signIn({ user, account }) {
       if (account?.provider === "google") {
         if (!user.email) {
@@ -103,38 +154,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
 
       return true;
-    },
-
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-        token.role = user.role;
-      }
-
-      if (token.email) {
-        const dbUser = await prisma.user.findUnique({
-          where: {
-            email: token.email.toLowerCase(),
-          },
-        });
-
-        if (dbUser) {
-          token.id = dbUser.id;
-          token.role = dbUser.role;
-          token.picture = dbUser.image || token.picture;
-        }
-      }
-
-      return token;
-    },
-
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id;
-        session.user.role = token.role || "CUSTOMER";
-      }
-
-      return session;
     },
   },
 

@@ -15,10 +15,11 @@ model User {
   image    String?
   role     String  @default("CUSTOMER")
 
-  cart         Cart?
-  orders       Order[]
-  reservations Reservation[]
-  reviews      Review[]
+  cart          Cart?
+  orders        Order[]
+  reservations  Reservation[]
+  reviews       Review[]
+  notifications Notification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -121,7 +122,7 @@ model Order {
   status        String  @default("PENDING")
   paymentMethod String
   subtotal      Float
-  deliveryFee   Float   @default(0)
+  deliveryFee   Float  @default(0)
   discount      Float   @default(0)
   total         Float
   notes         String?
@@ -209,4 +210,35 @@ model Review {
 
   @@index([userId])
   @@index([menuItemId])
+}
+
+model Notification {
+  id String @id @default(cuid())
+
+  type    String // ORDER | RESERVATION | REVIEW | PAYMENT
+  title   String
+  message String
+  link    String?
+
+  isRead Boolean @default(false)
+
+  userId String?
+  user   User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+model StripeWebhookEvent {
+  id          String   @id @default(cuid())
+  eventId     String   @unique
+  eventType   String
+  processedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@index([eventType])
+  @@index([processedAt])
 }

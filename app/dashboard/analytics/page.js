@@ -51,10 +51,25 @@ function money(value) {
 function formatMethod(method) {
   if (!method) return "Unknown";
 
-  return method
+  return String(method)
     .replaceAll("_", " ")
     .toLowerCase()
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatChartDate(date) {
+  if (!date) return "";
+
+  const value = new Date(`${date}T00:00:00+06:00`);
+
+  if (Number.isNaN(value.getTime())) {
+    return date;
+  }
+
+  return value.toLocaleDateString("en-BD", {
+    day: "2-digit",
+    month: "short",
+  });
 }
 
 function StatCard({ icon: Icon, title, value, subtitle }) {
@@ -80,6 +95,32 @@ function StatCard({ icon: Icon, title, value, subtitle }) {
 }
 
 function RevenueChart({ data }) {
+  if (!data?.length) {
+    return (
+      <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-6">
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold text-white">
+            Revenue Performance
+          </h2>
+
+          <p className="mt-1 text-sm text-white/40">
+            Paid transaction revenue over selected period
+          </p>
+        </div>
+
+        <div className="flex h-[330px] items-center justify-center rounded-2xl border border-dashed border-white/10">
+          <div className="text-center">
+            <BarChart3 size={32} className="mx-auto text-white/20" />
+
+            <p className="mt-3 text-sm text-white/35">
+              No revenue data available.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const maxRevenue = Math.max(
     ...data.map((item) => Number(item.revenue || 0)),
     1,
@@ -133,7 +174,7 @@ function RevenueChart({ data }) {
       </div>
 
       <div className="overflow-x-auto">
-        <div className={`${data.length > 14 ? "min-w-[900px]" : "min-w-full"}`}>
+        <div className={data.length > 14 ? "min-w-[900px]" : "min-w-full"}>
           <svg
             viewBox={`0 0 ${chartWidth} ${chartHeight + 55}`}
             className="h-[330px] w-full overflow-visible"
@@ -243,8 +284,11 @@ function PaymentMethodCard({ method }) {
 
 export default function RevenueAnalyticsPage() {
   const [range, setRange] = useState("7d");
+
   const [data, setData] = useState(null);
+
   const [loading, setLoading] = useState(true);
+
   const [refreshing, setRefreshing] = useState(false);
 
   const loadAnalytics = async (selectedRange = range, isRefresh = false) => {
@@ -255,10 +299,29 @@ export default function RevenueAnalyticsPage() {
         setLoading(true);
       }
 
+      /*
+       * CURRENT BACKEND:
+       *
+       * /api/admin/analytics/revenue
+       *
+       * Supported ranges:
+       * today
+       * 7d
+       * 30d
+       * month
+       * year
+       */
+
       const response = await fetch(
-        `/api/admin/analytics/revenue?range=${selectedRange}`,
+        `/api/admin/analytics/revenue?range=${encodeURIComponent(
+          selectedRange,
+        )}`,
         {
+          method: "GET",
           cache: "no-store",
+          headers: {
+            Accept: "application/json",
+          },
         },
       );
 
@@ -268,9 +331,77 @@ export default function RevenueAnalyticsPage() {
         throw new Error(result.message || "Failed to load analytics.");
       }
 
-      setData(result.data);
+      /*
+       * CURRENT BACKEND RESPONSE:
+       *
+       * result.data.summary
+       * result.data.chartData
+       * result.data.paymentMethods
+       */
+
+      const backendData = result.data || {};
+
+      const backendSummary = backendData.summary || {};
+
+      const backendChart = Array.isArray(backendData.chartData)
+        ? backendData.chartData
+        : [];
+
+      const backendPaymentMethods = Array.isArray(backendData.paymentMethods)
+        ? backendData.paymentMethods
+        : [];
+
+      /*
+       * Chart data already comes from backend
+       * in the correct structure.
+       */
+
+      const normalizedChart = backendChart.map((item) => ({
+        ...item,
+        label: item.label || formatChartDate(item.date),
+        revenue: Number(item.revenue || 0),
+        transactions: Number(item.transactions || 0),
+      }));
+
+      /*
+       * Payment methods already use:
+       *
+       * method
+       * revenue
+       * transactions
+       */
+
+      const normalizedPaymentMethods = backendPaymentMethods.map((item) => ({
+        ...item,
+        transactions: Number(item.transactions || 0),
+        revenue: Number(item.revenue || 0),
+      }));
+
+      setData({
+        range: backendData.range || selectedRange,
+
+        summary: {
+          totalRevenue: Number(backendSummary.totalRevenue || 0),
+
+          paidTransactions: Number(backendSummary.paidTransactions || 0),
+
+          averageOrderValue: Number(backendSummary.averageOrderValue || 0),
+
+          todayRevenue: Number(backendSummary.todayRevenue || 0),
+
+          todayTransactions: Number(backendSummary.todayTransactions || 0),
+
+          monthRevenue: Number(backendSummary.monthRevenue || 0),
+
+          yearRevenue: Number(backendSummary.yearRevenue || 0),
+        },
+
+        chartData: normalizedChart,
+
+        paymentMethods: normalizedPaymentMethods,
+      });
     } catch (error) {
-      console.error(error);
+      console.error("ANALYTICS FETCH ERROR:", error);
 
       await Swal.fire({
         icon: "error",
@@ -297,7 +428,9 @@ export default function RevenueAnalyticsPage() {
   const paymentMethods = data?.paymentMethods || [];
 
   const highestRevenueDay = useMemo(() => {
-    if (!chartData.length) return null;
+    if (!chartData.length) {
+      return null;
+    }
 
     return chartData.reduce(
       (highest, current) =>
@@ -309,7 +442,10 @@ export default function RevenueAnalyticsPage() {
   return (
     <main className="min-h-screen bg-[#080808] px-4 py-8 text-[#f5f1e8] sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1500px]">
-        {/* Top Navigation */}
+        {/* =====================================
+            TOP NAVIGATION
+        ====================================== */}
+
         <div className="mb-8 flex flex-wrap items-center gap-3">
           <Link
             href="/"
@@ -336,7 +472,10 @@ export default function RevenueAnalyticsPage() {
           </Link>
         </div>
 
-        {/* Header */}
+        {/* =====================================
+            HEADER
+        ====================================== */}
+
         <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#d4af37]/20 bg-[#d4af37]/10 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-[#d4af37]">
@@ -369,7 +508,10 @@ export default function RevenueAnalyticsPage() {
           </button>
         </div>
 
-        {/* Range Selector */}
+        {/* =====================================
+            RANGE SELECTOR
+        ====================================== */}
+
         <div className="mb-8 flex flex-wrap gap-2">
           {ranges.map((item) => {
             const active = range === item.value;
@@ -391,7 +533,10 @@ export default function RevenueAnalyticsPage() {
           })}
         </div>
 
-        {/* Loading */}
+        {/* =====================================
+            LOADING
+        ====================================== */}
+
         {loading ? (
           <div className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -407,7 +552,10 @@ export default function RevenueAnalyticsPage() {
           </div>
         ) : (
           <>
-            {/* Stats */}
+            {/* =================================
+                STATS
+            ================================== */}
+
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <StatCard
                 icon={DollarSign}
@@ -434,18 +582,27 @@ export default function RevenueAnalyticsPage() {
                 icon={CalendarDays}
                 title="Today"
                 value={money(summary?.todayRevenue)}
-                subtitle="Today's paid revenue"
+                subtitle={`${summary?.todayTransactions || 0} paid transaction${
+                  Number(summary?.todayTransactions || 0) !== 1 ? "s" : ""
+                }`}
               />
             </div>
 
-            {/* Chart */}
+            {/* =================================
+                CHART
+            ================================== */}
+
             <div className="mt-6">
               <RevenueChart data={chartData} />
             </div>
 
-            {/* Secondary Analytics */}
+            {/* =================================
+                SECONDARY ANALYTICS
+            ================================== */}
+
             <div className="mt-6 grid gap-6 lg:grid-cols-3">
-              {/* Month */}
+              {/* MONTH */}
+
               <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#d4af37]/10 text-[#d4af37]">
@@ -464,7 +621,8 @@ export default function RevenueAnalyticsPage() {
                 </div>
               </div>
 
-              {/* Best */}
+              {/* BEST */}
+
               <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#d4af37]/10 text-[#d4af37]">
@@ -491,7 +649,8 @@ export default function RevenueAnalyticsPage() {
                 </div>
               </div>
 
-              {/* Range */}
+              {/* RANGE */}
+
               <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#d4af37]/10 text-[#d4af37]">
@@ -513,7 +672,10 @@ export default function RevenueAnalyticsPage() {
               </div>
             </div>
 
-            {/* Payment Methods */}
+            {/* =================================
+                PAYMENT METHODS
+            ================================== */}
+
             <div className="mt-6 rounded-3xl border border-white/10 bg-white/[0.035] p-6">
               <div className="mb-5">
                 <h2 className="text-lg font-semibold text-white">

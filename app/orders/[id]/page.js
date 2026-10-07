@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -20,6 +19,7 @@ import {
   MapPin,
   Package,
   Phone,
+  RefreshCw,
   ShoppingBag,
   Truck,
   User,
@@ -75,75 +75,106 @@ export default function OrderDetailsPage() {
 
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  async function fetchOrder({ initial = false } = {}) {
+    if (!orderId) return;
+
+    try {
+      if (initial) {
+        setLoading(true);
+      } else {
+        setRefreshing(true);
+      }
+
+      const response = await fetch(`/api/orders/${orderId}`, {
+        cache: "no-store",
+      });
+
+      if (response.status === 401) {
+        router.replace(`/login?callbackUrl=/orders/${orderId}`);
+        return;
+      }
+
+      const text = await response.text();
+
+      let result = {};
+
+      try {
+        result = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error("Server returned an invalid response.");
+      }
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message || result.error || "Failed to load order.",
+        );
+      }
+
+      setOrder(result.data);
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error("ORDER DETAILS LOAD ERROR:", error);
+
+      if (initial) {
+        await Swal.fire({
+          icon: "error",
+          title: "Order Not Found",
+          text: error?.message || "Unable to load this order.",
+          background: "#111111",
+          color: "#f5f1e8",
+          confirmButtonColor: "#d4af37",
+        });
+
+        router.push("/orders");
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }
 
   useEffect(() => {
     if (!orderId) return;
 
     let active = true;
 
-    async function loadOrder() {
-      try {
-        setLoading(true);
-
-        const response = await fetch(
-          `/api/orders/${orderId}`,
-          {
-            cache: "no-store",
-          }
-        );
-
-        if (response.status === 401) {
-          router.replace(
-            `/login?callbackUrl=/orders/${orderId}`
-          );
-          return;
-        }
-
-        const result = await response.json();
-
-        if (!response.ok || !result.success) {
-          throw new Error(
-            result.message ||
-              "Failed to load order."
-          );
-        }
-
-        if (active) {
-          setOrder(result.data);
-        }
-      } catch (error) {
-        console.error(
-          "ORDER DETAILS LOAD ERROR:",
-          error
-        );
-
-        if (active) {
-          await Swal.fire({
-            icon: "error",
-            title: "Order Not Found",
-            text:
-              error?.message ||
-              "Unable to load this order.",
-            background: "#111111",
-            color: "#f5f1e8",
-            confirmButtonColor: "#d4af37",
-          });
-
-          router.push("/orders");
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
+    async function initialLoad() {
+      if (!active) return;
+      await fetchOrder({ initial: true });
     }
 
-    loadOrder();
+    initialLoad();
 
     return () => {
       active = false;
     };
-  }, [orderId, router]);
+  }, [orderId]);
+
+  /*
+   * ---------------------------------------------------------
+   * AUTO REFRESH
+   * ---------------------------------------------------------
+   *
+   * Active orders refresh every 10 seconds.
+   * Delivered/cancelled orders don't need polling.
+   */
+
+  useEffect(() => {
+    if (!orderId || !order) return;
+
+    if (order.status === "DELIVERED" || order.status === "CANCELLED") {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      fetchOrder();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [orderId, order?.status]);
 
   const paymentStatus = useMemo(() => {
     return order?.payment?.status || "PENDING";
@@ -157,12 +188,6 @@ export default function OrderDetailsPage() {
     return null;
   }
 
-  /*
-   * ---------------------------------------------------------
-   * PAYMENT CONDITIONS
-   * ---------------------------------------------------------
-   */
-
   const canPayWithSSL =
     order.paymentMethod === "SSLCOMMERZ" &&
     paymentStatus !== "PAID" &&
@@ -175,6 +200,9 @@ export default function OrderDetailsPage() {
     paymentStatus !== "REFUNDED" &&
     order.status !== "CANCELLED";
 
+  const isActiveOrder =
+    order.status !== "DELIVERED" && order.status !== "CANCELLED";
+
   return (
     <main className="min-h-screen bg-[#080808] px-4 pb-20 pt-28">
       <div className="mx-auto max-w-6xl">
@@ -183,8 +211,6 @@ export default function OrderDetailsPage() {
         ====================================================== */}
 
         <div className="mb-8 flex flex-wrap items-center gap-3">
-          {/* Home */}
-
           <Link
             href="/"
             className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-white/65 transition hover:border-[#d4af37]/30 hover:bg-[#d4af37]/5 hover:text-[#d4af37]"
@@ -192,8 +218,6 @@ export default function OrderDetailsPage() {
             <Home className="h-4 w-4" />
             Home
           </Link>
-
-          {/* Back */}
 
           <button
             type="button"
@@ -203,8 +227,6 @@ export default function OrderDetailsPage() {
             <ArrowLeft className="h-4 w-4" />
             Back
           </button>
-
-          {/* Orders */}
 
           <Link
             href="/orders"
@@ -216,12 +238,10 @@ export default function OrderDetailsPage() {
         </div>
 
         {/* =====================================================
-            ORDER HEADER + TRACKING
+            ORDER HEADER
         ====================================================== */}
 
         <section className="luxury-glass overflow-hidden rounded-3xl">
-          {/* Header */}
-
           <div className="border-b border-white/10 p-6 md:p-8">
             <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
               <div>
@@ -238,33 +258,65 @@ export default function OrderDetailsPage() {
                 </h1>
 
                 <p className="mt-2 text-sm text-white/40">
-                  Placed{" "}
-                  {formatDate(order.createdAt)}
+                  Placed {formatDate(order.createdAt)}
                 </p>
               </div>
 
-              <StatusBadge
-                status={order.status}
-              />
+              <div className="flex flex-wrap items-center gap-3">
+                <StatusBadge status={order.status} />
+
+                <button
+                  type="button"
+                  onClick={() => fetchOrder()}
+                  disabled={refreshing}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs text-white/55 transition hover:border-[#d4af37]/30 hover:text-[#d4af37] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 ${
+                      refreshing ? "animate-spin" : ""
+                    }`}
+                  />
+                  Refresh
+                </button>
+              </div>
             </div>
+
+            {lastUpdated && (
+              <p className="mt-5 text-xs text-white/25">
+                Last updated{" "}
+                {lastUpdated.toLocaleTimeString("en-BD", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+            )}
           </div>
 
-          {/* Tracking */}
+          {/* =================================================
+              TRACKING
+          ================================================== */}
 
           <div className="p-6 md:p-10">
-            <div className="mb-8">
-              <p className="text-xs uppercase tracking-[0.25em] text-[#d4af37]">
-                Live Progress
-              </p>
+            <div className="mb-8 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-[#d4af37]">
+                  Live Progress
+                </p>
 
-              <h2 className="mt-2 text-xl font-semibold text-[#f5f1e8]">
-                Track Your Order
-              </h2>
+                <h2 className="mt-2 text-xl font-semibold text-[#f5f1e8]">
+                  Track Your Order
+                </h2>
+              </div>
+
+              {isActiveOrder && (
+                <span className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-3 py-1.5 text-xs text-emerald-400">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                  Updating automatically
+                </span>
+              )}
             </div>
 
-            <OrderTimeline
-              status={order.status}
-            />
+            <OrderTimeline status={order.status} />
           </div>
         </section>
 
@@ -274,12 +326,12 @@ export default function OrderDetailsPage() {
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_380px]">
           {/* ===================================================
-              LEFT COLUMN
+              LEFT
           ==================================================== */}
 
           <div className="space-y-8">
             {/* =================================================
-                ORDER ITEMS
+                ITEMS
             ================================================== */}
 
             <section className="luxury-glass rounded-3xl p-6 md:p-8">
@@ -293,12 +345,8 @@ export default function OrderDetailsPage() {
                     </h2>
 
                     <p className="mt-1 text-xs text-white/30">
-                      {order.items?.length || 0}{" "}
-                      item
-                      {order.items?.length === 1
-                        ? ""
-                        : "s"}{" "}
-                      in this order
+                      {order.items?.length || 0} item
+                      {order.items?.length === 1 ? "" : "s"} in this order
                     </p>
                   </div>
                 </div>
@@ -306,16 +354,13 @@ export default function OrderDetailsPage() {
 
               <div className="space-y-5">
                 {order.items?.map((item) => (
-                  <OrderItem
-                    key={item.id}
-                    item={item}
-                  />
+                  <OrderItem key={item.id} item={item} />
                 ))}
               </div>
             </section>
 
             {/* =================================================
-                DELIVERY INFORMATION
+                DELIVERY
             ================================================== */}
 
             {order.deliveryAddress && (
@@ -338,70 +383,49 @@ export default function OrderDetailsPage() {
                   <InfoItem
                     icon={<User />}
                     label="Name"
-                    value={
-                      order.deliveryAddress
-                        .fullName
-                    }
+                    value={order.deliveryAddress.fullName}
                   />
 
                   <InfoItem
                     icon={<Phone />}
                     label="Phone"
-                    value={
-                      order.deliveryAddress.phone
-                    }
+                    value={order.deliveryAddress.phone}
                   />
 
                   <InfoItem
                     icon={<Home />}
                     label="City"
-                    value={
-                      order.deliveryAddress.city
-                    }
+                    value={order.deliveryAddress.city}
                   />
 
                   <InfoItem
                     icon={<MapPin />}
                     label="Area"
-                    value={
-                      order.deliveryAddress.area ||
-                      "Not provided"
-                    }
+                    value={order.deliveryAddress.area || "Not provided"}
                   />
 
                   <div className="sm:col-span-2">
                     <InfoItem
                       icon={<MapPin />}
                       label="Address"
-                      value={
-                        order.deliveryAddress
-                          .address
-                      }
+                      value={order.deliveryAddress.address}
                     />
                   </div>
 
-                  {order.deliveryAddress
-                    .postalCode && (
+                  {order.deliveryAddress.postalCode && (
                     <InfoItem
                       icon={<MapPin />}
                       label="Postal Code"
-                      value={
-                        order.deliveryAddress
-                          .postalCode
-                      }
+                      value={order.deliveryAddress.postalCode}
                     />
                   )}
 
-                  {order.deliveryAddress
-                    .instructions && (
+                  {order.deliveryAddress.instructions && (
                     <div className="sm:col-span-2">
                       <InfoItem
                         icon={<Truck />}
                         label="Delivery Instructions"
-                        value={
-                          order.deliveryAddress
-                            .instructions
-                        }
+                        value={order.deliveryAddress.instructions}
                       />
                     </div>
                   )}
@@ -410,7 +434,7 @@ export default function OrderDetailsPage() {
             )}
 
             {/* =================================================
-                ORDER NOTES
+                NOTES
             ================================================== */}
 
             {order.notes && (
@@ -432,15 +456,47 @@ export default function OrderDetailsPage() {
                 </div>
               </section>
             )}
+
+            {/* =================================================
+                DELIVERED CTA
+            ================================================== */}
+
+            {order.status === "DELIVERED" && (
+              <section className="overflow-hidden rounded-3xl border border-[#d4af37]/20 bg-gradient-to-br from-[#d4af37]/10 via-[#111] to-[#111] p-6 md:p-8">
+                <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.25em] text-[#d4af37]">
+                      Order Completed
+                    </p>
+
+                    <h2 className="mt-2 text-2xl font-semibold text-[#f5f1e8]">
+                      How was your meal?
+                    </h2>
+
+                    <p className="mt-2 max-w-lg text-sm leading-6 text-white/40">
+                      We would love to hear about your experience with ST
+                      Restaurant.
+                    </p>
+                  </div>
+
+                  <Link
+                    href="/orders"
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-[#d4af37] px-6 py-3 font-semibold text-black transition hover:bg-[#e4c65a]"
+                  >
+                    ⭐ Write Review
+                  </Link>
+                </div>
+              </section>
+            )}
           </div>
 
           {/* ===================================================
-              RIGHT COLUMN
+              RIGHT
           ==================================================== */}
 
           <aside className="space-y-8 lg:sticky lg:top-28 lg:self-start">
             {/* =================================================
-                ORDER SUMMARY
+                SUMMARY
             ================================================== */}
 
             <section className="luxury-glass rounded-3xl p-6">
@@ -457,25 +513,18 @@ export default function OrderDetailsPage() {
               <div className="space-y-4">
                 <SummaryRow
                   label="Subtotal"
-                  value={`৳${Number(
-                    order.subtotal
-                  ).toLocaleString()}`}
+                  value={`৳${Number(order.subtotal || 0).toLocaleString()}`}
                 />
 
                 <SummaryRow
                   label="Delivery Fee"
-                  value={`৳${Number(
-                    order.deliveryFee
-                  ).toLocaleString()}`}
+                  value={`৳${Number(order.deliveryFee || 0).toLocaleString()}`}
                 />
 
-                {Number(order.discount) >
-                  0 && (
+                {Number(order.discount || 0) > 0 && (
                   <SummaryRow
                     label="Discount"
-                    value={`-৳${Number(
-                      order.discount
-                    ).toLocaleString()}`}
+                    value={`-৳${Number(order.discount).toLocaleString()}`}
                     valueClassName="text-emerald-400"
                   />
                 )}
@@ -493,10 +542,7 @@ export default function OrderDetailsPage() {
                     </div>
 
                     <span className="text-2xl font-bold text-[#d4af37]">
-                      ৳
-                      {Number(
-                        order.total
-                      ).toLocaleString()}
+                      ৳{Number(order.total || 0).toLocaleString()}
                     </span>
                   </div>
                 </div>
@@ -524,73 +570,43 @@ export default function OrderDetailsPage() {
                 </div>
               </div>
 
-              {/* Payment Information */}
-
               <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-                {/* Method */}
-
                 <div>
-                  <p className="text-xs text-white/30">
-                    Payment Method
-                  </p>
+                  <p className="text-xs text-white/30">Payment Method</p>
 
                   <p className="mt-1 font-medium text-white/80">
-                    {getPaymentMethodLabel(
-                      order.paymentMethod
-                    )}
+                    {getPaymentMethodLabel(order.paymentMethod)}
                   </p>
                 </div>
 
-                {/* Status */}
-
                 <div className="mt-5 flex items-center justify-between gap-3">
-                  <span className="text-xs text-white/35">
-                    Payment Status
-                  </span>
+                  <span className="text-xs text-white/35">Payment Status</span>
 
-                  <PaymentStatusBadge
-                    status={paymentStatus}
-                  />
+                  <PaymentStatusBadge status={paymentStatus} />
                 </div>
 
-                {/* Transaction ID */}
-
-                {order.payment
-                  ?.transactionId && (
+                {order.payment?.transactionId && (
                   <div className="mt-5 border-t border-white/5 pt-4">
-                    <p className="text-xs text-white/30">
-                      Transaction ID
-                    </p>
+                    <p className="text-xs text-white/30">Transaction ID</p>
 
                     <p className="mt-1 break-all font-mono text-xs text-white/55">
-                      {
-                        order.payment
-                          .transactionId
-                      }
+                      {order.payment.transactionId}
                     </p>
                   </div>
                 )}
 
-                {/* Paid At */}
-
                 {order.payment?.paidAt && (
                   <div className="mt-4">
-                    <p className="text-xs text-white/30">
-                      Paid At
-                    </p>
+                    <p className="text-xs text-white/30">Paid At</p>
 
                     <p className="mt-1 text-xs text-white/55">
-                      {formatDate(
-                        order.payment.paidAt
-                      )}
+                      {formatDate(order.payment.paidAt)}
                     </p>
                   </div>
                 )}
               </div>
 
-              {/* =================================================
-                  SSLCOMMERZ PAYMENT
-              ================================================== */}
+              {/* SSL */}
 
               {canPayWithSSL && (
                 <div className="mt-5">
@@ -604,23 +620,18 @@ export default function OrderDetailsPage() {
                         </p>
 
                         <p className="mt-1 text-xs leading-5 text-white/40">
-                          Complete your online payment
-                          securely through SSLCommerz.
+                          Complete your online payment securely through
+                          SSLCommerz.
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  <PayNowButton
-                    orderId={order.id}
-                    amount={order.total}
-                  />
+                  <PayNowButton orderId={order.id} amount={order.total} />
                 </div>
               )}
 
-              {/* =================================================
-                  STRIPE PAYMENT
-              ================================================== */}
+              {/* Stripe */}
 
               {canPayWithStripe && (
                 <div className="mt-5">
@@ -634,24 +645,17 @@ export default function OrderDetailsPage() {
                         </p>
 
                         <p className="mt-1 text-xs leading-5 text-white/40">
-                          Pay securely with your card
-                          through Stripe. Your card
-                          information is handled securely
-                          by Stripe.
+                          Pay securely with your card through Stripe.
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  <StripePayButton
-                    orderId={order.id}
-                  />
+                  <StripePayButton orderId={order.id} />
                 </div>
               )}
 
-              {/* =================================================
-                  PAID
-              ================================================== */}
+              {/* PAID */}
 
               {paymentStatus === "PAID" && (
                 <div className="mt-5 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
@@ -666,70 +670,57 @@ export default function OrderDetailsPage() {
                       </p>
 
                       <p className="mt-1 text-xs text-white/35">
-                        Your payment has been successfully
-                        verified.
+                        Your payment has been successfully verified.
                       </p>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* =================================================
-                  COD
-              ================================================== */}
+              {/* COD */}
 
-              {order.paymentMethod ===
-                "COD" &&
-                paymentStatus !== "PAID" && (
-                  <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
-                    <div className="flex gap-3">
-                      <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+              {order.paymentMethod === "COD" && paymentStatus !== "PAID" && (
+                <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+                  <div className="flex gap-3">
+                    <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
 
-                      <div>
-                        <p className="text-sm font-semibold text-amber-400">
-                          Cash on Delivery
-                        </p>
+                    <div>
+                      <p className="text-sm font-semibold text-amber-400">
+                        Cash on Delivery
+                      </p>
 
-                        <p className="mt-1 text-xs leading-5 text-white/35">
-                          Please keep the exact amount
-                          ready when your order arrives.
-                        </p>
-                      </div>
+                      <p className="mt-1 text-xs leading-5 text-white/35">
+                        Please keep the exact amount ready when your order
+                        arrives.
+                      </p>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
 
-              {/* =================================================
-                  FAILED
-              ================================================== */}
+              {/* FAILED */}
 
-              {paymentStatus ===
-                "FAILED" &&
-                order.status !== "CANCELLED" && (
-                  <div className="mt-5 rounded-2xl border border-red-500/20 bg-red-500/5 p-4">
-                    <div className="flex gap-3">
-                      <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+              {paymentStatus === "FAILED" && order.status !== "CANCELLED" && (
+                <div className="mt-5 rounded-2xl border border-red-500/20 bg-red-500/5 p-4">
+                  <div className="flex gap-3">
+                    <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
 
-                      <div>
-                        <p className="text-sm font-semibold text-red-400">
-                          Payment Failed
-                        </p>
+                    <div>
+                      <p className="text-sm font-semibold text-red-400">
+                        Payment Failed
+                      </p>
 
-                        <p className="mt-1 text-xs leading-5 text-white/35">
-                          Your previous payment attempt
-                          failed. Please try again.
-                        </p>
-                      </div>
+                      <p className="mt-1 text-xs leading-5 text-white/35">
+                        Your previous payment attempt failed. Please try again.
+                      </p>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
 
-              {/* =================================================
-                  REFUNDED
-              ================================================== */}
+              {/* REFUNDED */}
 
-              {paymentStatus ===
-                "REFUNDED" && (
+              {paymentStatus === "REFUNDED" && (
                 <div className="mt-5 rounded-2xl border border-purple-500/20 bg-purple-500/5 p-4">
                   <div className="flex gap-3">
                     <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-purple-400" />
@@ -739,7 +730,7 @@ export default function OrderDetailsPage() {
                         Payment Refunded
                       </p>
 
-                      <p className="mt-1 text-xs leading-5 text-white/35">
+                      <p className="mt-1 text-xs text-white/35">
                         This payment has been refunded.
                       </p>
                     </div>
@@ -747,12 +738,9 @@ export default function OrderDetailsPage() {
                 </div>
               )}
 
-              {/* =================================================
-                  CANCELLED
-              ================================================== */}
+              {/* CANCELLED */}
 
-              {order.status ===
-                "CANCELLED" && (
+              {order.status === "CANCELLED" && (
                 <div className="mt-5 rounded-2xl border border-red-500/20 bg-red-500/5 p-4">
                   <div className="flex gap-3">
                     <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
@@ -763,8 +751,7 @@ export default function OrderDetailsPage() {
                       </p>
 
                       <p className="mt-1 text-xs leading-5 text-white/35">
-                        Payment actions are disabled for
-                        cancelled orders.
+                        Payment actions are disabled for cancelled orders.
                       </p>
                     </div>
                   </div>
@@ -831,8 +818,7 @@ export default function OrderDetailsPage() {
 ============================================================ */
 
 function OrderTimeline({ status }) {
-  const currentIndex =
-    statusOrder.indexOf(status);
+  const currentIndex = statusOrder.indexOf(status);
 
   if (status === "CANCELLED") {
     return (
@@ -843,13 +829,10 @@ function OrderTimeline({ status }) {
           </div>
 
           <div>
-            <p className="font-semibold">
-              Order Cancelled
-            </p>
+            <p className="font-semibold">Order Cancelled</p>
 
             <p className="mt-1 text-sm leading-6 text-white/40">
-              This order has been cancelled and can no
-              longer be processed.
+              This order has been cancelled and can no longer be processed.
             </p>
           </div>
         </div>
@@ -859,27 +842,18 @@ function OrderTimeline({ status }) {
 
   return (
     <div className="relative">
-      {/* Desktop line */}
-
       <div className="absolute left-[20px] top-5 hidden h-[calc(100%-40px)] w-px bg-white/10 md:block" />
 
       <div className="space-y-8">
         {steps.map((step, index) => {
           const Icon = step.icon;
 
-          const completed =
-            currentIndex >= index;
+          const completed = currentIndex >= index;
 
-          const current =
-            currentIndex === index;
+          const current = currentIndex === index;
 
           return (
-            <div
-              key={step.key}
-              className="relative flex gap-5"
-            >
-              {/* Icon */}
-
+            <div key={step.key} className="relative flex gap-5">
               <div
                 className={`relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition ${
                   completed
@@ -898,14 +872,10 @@ function OrderTimeline({ status }) {
                 )}
               </div>
 
-              {/* Text */}
-
               <div className="min-w-0 pt-1">
                 <h3
                   className={`font-semibold ${
-                    completed
-                      ? "text-[#f5f1e8]"
-                      : "text-white/25"
+                    completed ? "text-[#f5f1e8]" : "text-white/25"
                   }`}
                 >
                   {step.title}
@@ -935,25 +905,17 @@ function OrderTimeline({ status }) {
 ============================================================ */
 
 function OrderItem({ item }) {
-  const itemTotal =
-    Number(item.price) *
-    Number(item.quantity);
+  const itemTotal = Number(item.price || 0) * Number(item.quantity || 0);
 
-  const image =
-    item?.menuItem?.image || null;
+  const image = item?.menuItem?.image || null;
 
-  const name =
-    item?.menuItem?.name ||
-    "Restaurant Item";
+  const name = item?.menuItem?.name || "Restaurant Item";
 
   const description =
-    item?.menuItem?.description ||
-    "Deliciously prepared by ST Restaurant.";
+    item?.menuItem?.description || "Deliciously prepared by ST Restaurant.";
 
   return (
     <div className="flex gap-4 border-b border-white/5 pb-5 last:border-0 last:pb-0">
-      {/* Image */}
-
       <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-[#181818] sm:h-24 sm:w-24">
         {image ? (
           <Image
@@ -970,38 +932,25 @@ function OrderItem({ item }) {
         )}
       </div>
 
-      {/* Content */}
-
       <div className="min-w-0 flex-1">
-        <h3 className="font-semibold text-[#f5f1e8]">
-          {name}
-        </h3>
+        <h3 className="font-semibold text-[#f5f1e8]">{name}</h3>
 
         <p className="mt-1 line-clamp-2 text-sm leading-6 text-white/35">
           {description}
         </p>
 
         <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-          <span className="text-white/40">
-            Qty: {item.quantity}
-          </span>
+          <span className="text-white/40">Qty: {item.quantity}</span>
 
           <span className="text-[#d4af37]">
-            ৳
-            {Number(
-              item.price
-            ).toLocaleString()}{" "}
-            each
+            ৳{Number(item.price || 0).toLocaleString()} each
           </span>
         </div>
       </div>
 
-      {/* Price */}
-
       <div className="shrink-0 text-right">
         <p className="font-semibold text-white/80">
-          ৳
-          {itemTotal.toLocaleString()}
+          ৳{itemTotal.toLocaleString()}
         </p>
       </div>
     </div>
@@ -1012,24 +961,16 @@ function OrderItem({ item }) {
    INFO ITEM
 ============================================================ */
 
-function InfoItem({
-  icon,
-  label,
-  value,
-}) {
+function InfoItem({ icon, label, value }) {
   return (
     <div>
       <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wider text-white/30">
-        <span className="text-[#d4af37]">
-          {icon}
-        </span>
+        <span className="text-[#d4af37]">{icon}</span>
 
         {label}
       </div>
 
-      <p className="break-words text-sm leading-6 text-white/70">
-        {value}
-      </p>
+      <p className="break-words text-sm leading-6 text-white/70">{value}</p>
     </div>
   );
 }
@@ -1038,22 +979,12 @@ function InfoItem({
    SUMMARY ROW
 ============================================================ */
 
-function SummaryRow({
-  label,
-  value,
-  valueClassName = "text-white/75",
-}) {
+function SummaryRow({ label, value, valueClassName = "text-white/75" }) {
   return (
     <div className="flex items-center justify-between gap-4 text-sm">
-      <span className="text-white/45">
-        {label}
-      </span>
+      <span className="text-white/45">{label}</span>
 
-      <span
-        className={`font-medium ${valueClassName}`}
-      >
-        {value}
-      </span>
+      <span className={`font-medium ${valueClassName}`}>{value}</span>
     </div>
   );
 }
@@ -1097,37 +1028,26 @@ function PaymentStatusBadge({ status }) {
   const config = {
     PAID: {
       label: "PAID",
-      className:
-        "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
+      className: "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
     },
 
     PENDING: {
       label: "PENDING",
-      className:
-        "border-amber-500/20 bg-amber-500/10 text-amber-400",
+      className: "border-amber-500/20 bg-amber-500/10 text-amber-400",
     },
 
     FAILED: {
       label: "FAILED",
-      className:
-        "border-red-500/20 bg-red-500/10 text-red-400",
-    },
-
-    CANCELLED: {
-      label: "CANCELLED",
-      className:
-        "border-red-500/20 bg-red-500/10 text-red-400",
+      className: "border-red-500/20 bg-red-500/10 text-red-400",
     },
 
     REFUNDED: {
       label: "REFUNDED",
-      className:
-        "border-purple-500/20 bg-purple-500/10 text-purple-400",
+      className: "border-purple-500/20 bg-purple-500/10 text-purple-400",
     },
   };
 
-  const current =
-    config[status] || config.PENDING;
+  const current = config[status] || config.PENDING;
 
   return (
     <span
@@ -1139,7 +1059,7 @@ function PaymentStatusBadge({ status }) {
 }
 
 /* ============================================================
-   PAYMENT METHOD LABEL
+   PAYMENT METHOD
 ============================================================ */
 
 function getPaymentMethodLabel(method) {
@@ -1149,15 +1069,11 @@ function getPaymentMethodLabel(method) {
     STRIPE: "Stripe",
   };
 
-  return (
-    labels[method] ||
-    method ||
-    "Not specified"
-  );
+  return labels[method] || method || "Not specified";
 }
 
 /* ============================================================
-   DATE FORMAT
+   DATE
 ============================================================ */
 
 function formatDate(date) {
@@ -1166,43 +1082,34 @@ function formatDate(date) {
   }
 
   try {
-    return new Date(date).toLocaleString(
-      "en-BD",
-      {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }
-    );
+    return new Date(date).toLocaleString("en-BD", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
   } catch {
     return "N/A";
   }
 }
 
 /* ============================================================
-   LOADING SKELETON
+   LOADING
 ============================================================ */
 
 function OrderLoading() {
   return (
     <main className="min-h-screen bg-[#080808] px-4 pb-20 pt-28">
       <div className="mx-auto max-w-6xl">
-        {/* Navigation */}
-
         <div className="flex gap-3">
           <div className="h-10 w-24 animate-pulse rounded-xl bg-white/5" />
 
           <div className="h-10 w-24 animate-pulse rounded-xl bg-white/5" />
         </div>
 
-        {/* Header */}
-
         <div className="mt-6 overflow-hidden rounded-3xl bg-white/5">
           <div className="h-40 animate-pulse" />
 
           <div className="h-72 animate-pulse border-t border-white/5" />
         </div>
-
-        {/* Content */}
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_380px]">
           <div className="space-y-8">
@@ -1221,4 +1128,3 @@ function OrderLoading() {
     </main>
   );
 }
-

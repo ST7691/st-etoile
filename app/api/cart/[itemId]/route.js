@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -6,17 +7,31 @@ async function getUpdatedCart(userId) {
     where: {
       userId,
     },
-
-    include: {
+    select: {
       items: {
         orderBy: {
           createdAt: "asc",
         },
-
-        include: {
+        select: {
+          id: true,
+          quantity: true,
           menuItem: {
-            include: {
-              category: true,
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              price: true,
+              oldPrice: true,
+              image: true,
+              rating: true,
+              available: true,
+              category: {
+                select: {
+                  id: true,
+                  name: true,
+                  slug: true,
+                },
+              },
             },
           },
         },
@@ -32,15 +47,13 @@ async function getUpdatedCart(userId) {
     };
   }
 
-  const subtotal = cart.items.reduce(
-    (total, item) => total + Number(item.menuItem.price) * item.quantity,
-    0,
-  );
+  let subtotal = 0;
+  let itemCount = 0;
 
-  const itemCount = cart.items.reduce(
-    (total, item) => total + item.quantity,
-    0,
-  );
+  for (const item of cart.items) {
+    subtotal += Number(item.menuItem.price) * item.quantity;
+    itemCount += item.quantity;
+  }
 
   return {
     items: cart.items,
@@ -49,12 +62,16 @@ async function getUpdatedCart(userId) {
   };
 }
 
+/**
+ * PATCH
+ * Update quantity
+ */
 export async function PATCH(request, { params }) {
   try {
     const session = await auth();
 
     if (!session?.user?.id) {
-      return Response.json(
+      return NextResponse.json(
         {
           success: false,
           message: "Authentication required.",
@@ -68,11 +85,10 @@ export async function PATCH(request, { params }) {
     const { itemId } = await params;
 
     const body = await request.json();
-
-    const quantity = Number(body.quantity);
+    const quantity = Number(body?.quantity);
 
     if (!Number.isInteger(quantity) || quantity < 1) {
-      return Response.json(
+      return NextResponse.json(
         {
           success: false,
           message: "Quantity must be at least 1.",
@@ -83,33 +99,20 @@ export async function PATCH(request, { params }) {
       );
     }
 
-    const cart = await prisma.cart.findUnique({
-      where: {
-        userId: session.user.id,
-      },
-    });
-
-    if (!cart) {
-      return Response.json(
-        {
-          success: false,
-          message: "Cart not found.",
-        },
-        {
-          status: 404,
-        },
-      );
-    }
-
     const cartItem = await prisma.cartItem.findFirst({
       where: {
         id: itemId,
-        cartId: cart.id,
+        cart: {
+          userId: session.user.id,
+        },
+      },
+      select: {
+        id: true,
       },
     });
 
     if (!cartItem) {
-      return Response.json(
+      return NextResponse.json(
         {
           success: false,
           message: "Cart item not found.",
@@ -124,23 +127,30 @@ export async function PATCH(request, { params }) {
       where: {
         id: itemId,
       },
-
       data: {
         quantity,
       },
     });
 
-    const updatedCart = await getUpdatedCart(session.user.id);
+    const data = await getUpdatedCart(session.user.id);
 
-    return Response.json({
-      success: true,
-      message: "Cart updated successfully.",
-      ...updatedCart,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Cart updated successfully.",
+        data,
+      },
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
+    );
   } catch (error) {
-    console.error("PATCH /api/cart/[itemId] error:", error);
+    console.error("PATCH /api/cart/[itemId] ERROR:", error);
 
-    return Response.json(
+    return NextResponse.json(
       {
         success: false,
         message: "Failed to update cart item.",
@@ -152,12 +162,16 @@ export async function PATCH(request, { params }) {
   }
 }
 
+/**
+ * DELETE
+ * Remove cart item
+ */
 export async function DELETE(request, { params }) {
   try {
     const session = await auth();
 
     if (!session?.user?.id) {
-      return Response.json(
+      return NextResponse.json(
         {
           success: false,
           message: "Authentication required.",
@@ -170,33 +184,20 @@ export async function DELETE(request, { params }) {
 
     const { itemId } = await params;
 
-    const cart = await prisma.cart.findUnique({
-      where: {
-        userId: session.user.id,
-      },
-    });
-
-    if (!cart) {
-      return Response.json(
-        {
-          success: false,
-          message: "Cart not found.",
-        },
-        {
-          status: 404,
-        },
-      );
-    }
-
     const cartItem = await prisma.cartItem.findFirst({
       where: {
         id: itemId,
-        cartId: cart.id,
+        cart: {
+          userId: session.user.id,
+        },
+      },
+      select: {
+        id: true,
       },
     });
 
     if (!cartItem) {
-      return Response.json(
+      return NextResponse.json(
         {
           success: false,
           message: "Cart item not found.",
@@ -213,17 +214,25 @@ export async function DELETE(request, { params }) {
       },
     });
 
-    const updatedCart = await getUpdatedCart(session.user.id);
+    const data = await getUpdatedCart(session.user.id);
 
-    return Response.json({
-      success: true,
-      message: "Item removed from cart.",
-      ...updatedCart,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Item removed from cart.",
+        data,
+      },
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
+    );
   } catch (error) {
-    console.error("DELETE /api/cart/[itemId] error:", error);
+    console.error("DELETE /api/cart/[itemId] ERROR:", error);
 
-    return Response.json(
+    return NextResponse.json(
       {
         success: false,
         message: "Failed to remove cart item.",

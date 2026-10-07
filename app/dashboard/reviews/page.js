@@ -1,606 +1,714 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import Swal from "sweetalert2";
-
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft,
-  Home,
-  LayoutDashboard,
-  MessageSquare,
   Search,
   Star,
   Trash2,
   RefreshCw,
-  User,
-  Utensils,
-  TrendingUp,
+  MessageSquare,
+  Users,
   Award,
+  AlertCircle,
+  X,
+  Mail,
+  Utensils,
+  CalendarDays,
 } from "lucide-react";
 
-export default function AdminReviewsPage() {
-  const router = useRouter();
-  const { data: session, status } = useSession();
+const FILTERS = [
+  { value: "ALL", label: "All Reviews" },
+  { value: "5", label: "5 Stars" },
+  { value: "4", label: "4 Stars" },
+  { value: "3", label: "3 Stars" },
+  { value: "2", label: "2 Stars" },
+  { value: "1", label: "1 Star" },
+];
 
+function formatDate(date) {
+  if (!date) return "—";
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "—";
+  }
+
+  return parsedDate.toLocaleDateString("en-BD", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function Stars({ rating = 0, size = 15 }) {
+  return (
+    <div className="flex items-center gap-1">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          size={size}
+          className={
+            star <= Number(rating)
+              ? "fill-yellow-400 text-yellow-400"
+              : "text-gray-600"
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+function StatCard({ title, value, icon: Icon, description }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm text-gray-400">{title}</p>
+
+          <h3 className="mt-2 text-2xl font-bold text-white">{value}</h3>
+
+          {description && (
+            <p className="mt-1 text-xs text-gray-500">{description}</p>
+          )}
+        </div>
+
+        <div className="shrink-0 rounded-xl border border-yellow-500/20 bg-yellow-500/10 p-3">
+          <Icon size={20} className="text-yellow-400" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LoadingCard() {
+  return (
+    <div className="animate-pulse rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+      <div className="flex items-center gap-3">
+        <div className="h-11 w-11 rounded-full bg-white/10" />
+
+        <div className="flex-1">
+          <div className="h-4 w-32 rounded bg-white/10" />
+          <div className="mt-2 h-3 w-48 rounded bg-white/10" />
+        </div>
+      </div>
+
+      <div className="mt-5 h-4 w-28 rounded bg-white/10" />
+
+      <div className="mt-4 h-16 rounded bg-white/10" />
+
+      <div className="mt-4 h-14 rounded-xl bg-white/10" />
+    </div>
+  );
+}
+
+export default function ReviewsPage() {
   const [reviews, setReviews] = useState([]);
-  const [loading, setLoading] = useState(true);
+
+  const [stats, setStats] = useState({
+    total: 0,
+    average: 0,
+    fiveStar: 0,
+    oneStar: 0,
+  });
 
   const [search, setSearch] = useState("");
-  const [ratingFilter, setRatingFilter] = useState("all");
+  const [rating, setRating] = useState("ALL");
 
-  const [deletingId, setDeletingId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  /* =========================================================
-     LOAD REVIEWS
-  ========================================================= */
+  const [error, setError] = useState("");
 
-  async function loadReviews() {
+  const [deleteId, setDeleteId] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const [selectedReview, setSelectedReview] = useState(null);
+
+  const fetchReviews = useCallback(async () => {
     try {
-      setLoading(true);
+      setError("");
 
-      const response = await fetch("/api/admin/reviews", {
-        cache: "no-store",
+      const params = new URLSearchParams();
+
+      if (rating !== "ALL") {
+        params.set("rating", rating);
+      }
+
+      if (search.trim()) {
+        params.set("search", search.trim());
+      }
+
+      const query = params.toString();
+
+      const response = await fetch(
+        `/api/admin/reviews${query ? `?${query}` : ""}`,
+        {
+          method: "GET",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      const text = await response.text();
+
+      let data = {};
+
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error("Server returned an invalid response.");
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data?.message || data?.error || "Failed to load reviews.",
+        );
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.message || "Failed to load reviews.");
+      }
+
+      /*
+       * IMPORTANT:
+       *
+       * API returns:
+       *
+       * data: [...]
+       *
+       * stats: {
+       *   totalReviews,
+       *   averageRating,
+       *   ratingStats: {
+       *     five,
+       *     four,
+       *     three,
+       *     two,
+       *     one
+       *   }
+       * }
+       */
+
+      setReviews(Array.isArray(data.data) ? data.data : []);
+
+      setStats({
+        total: Number(data.stats?.totalReviews || 0),
+
+        average: Number(data.stats?.averageRating || 0),
+
+        fiveStar: Number(data.stats?.ratingStats?.five || 0),
+
+        oneStar: Number(data.stats?.ratingStats?.one || 0),
       });
+    } catch (err) {
+      console.error("REVIEWS FETCH ERROR:", err);
 
-      const result = await response.json();
+      setError(err?.message || "Something went wrong while loading reviews.");
 
-      if (response.status === 401) {
-        router.push("/login?callbackUrl=/dashboard/reviews");
-        return;
-      }
+      setReviews([]);
 
-      if (response.status === 403) {
-        setReviews([]);
-        return;
-      }
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to load reviews.");
-      }
-
-      setReviews(result.data || []);
-    } catch (error) {
-      console.error("LOAD REVIEWS ERROR:", error);
-
-      Swal.fire({
-        icon: "error",
-        title: "Unable to load reviews",
-        text: error.message || "Something went wrong.",
-        background: "#111",
-        color: "#fff",
-        confirmButtonColor: "#d4af37",
+      setStats({
+        total: 0,
+        average: 0,
+        fiveStar: 0,
+        oneStar: 0,
       });
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }
-
-  /* =========================================================
-     AUTH
-  ========================================================= */
+  }, [rating, search]);
 
   useEffect(() => {
-    if (status === "loading") return;
+    const timer = setTimeout(() => {
+      fetchReviews();
+    }, 300);
 
-    if (!session?.user) {
-      router.push("/login?callbackUrl=/dashboard/reviews");
-      return;
-    }
+    return () => clearTimeout(timer);
+  }, [fetchReviews]);
 
-    if (session.user.role !== "ADMIN" && session.user.role !== "STAFF") {
-      setLoading(false);
-      return;
-    }
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchReviews();
+  };
 
-    loadReviews();
-  }, [session, status]);
-
-  /* =========================================================
-     FILTER
-  ========================================================= */
-
-  const filteredReviews = useMemo(() => {
-    const query = search.trim().toLowerCase();
-
-    return reviews.filter((review) => {
-      const matchesSearch =
-        !query ||
-        review.comment?.toLowerCase().includes(query) ||
-        review.user?.name?.toLowerCase().includes(query) ||
-        review.user?.email?.toLowerCase().includes(query) ||
-        review.menuItem?.name?.toLowerCase().includes(query);
-
-      const matchesRating =
-        ratingFilter === "all" || review.rating === Number(ratingFilter);
-
-      return matchesSearch && matchesRating;
-    });
-  }, [reviews, search, ratingFilter]);
-
-  /* =========================================================
-     STATISTICS
-  ========================================================= */
-
-  const stats = useMemo(() => {
-    const total = reviews.length;
-
-    const average =
-      total > 0
-        ? reviews.reduce((sum, review) => sum + review.rating, 0) / total
-        : 0;
-
-    const fiveStar = reviews.filter((review) => review.rating === 5).length;
-
-    const positive = total > 0 ? Math.round((fiveStar / total) * 100) : 0;
-
-    return {
-      total,
-      average: average.toFixed(1),
-      fiveStar,
-      positive,
-    };
-  }, [reviews]);
-
-  /* =========================================================
-     DELETE REVIEW
-  ========================================================= */
-
-  async function handleDelete(review) {
-    const result = await Swal.fire({
-      icon: "warning",
-      title: "Delete this review?",
-      html: `
-        <p style="color:#aaa">
-          This review will be permanently removed.
-        </p>
-      `,
-      showCancelButton: true,
-      confirmButtonText: "Delete Review",
-      cancelButtonText: "Cancel",
-      background: "#111",
-      color: "#fff",
-      confirmButtonColor: "#dc2626",
-      cancelButtonColor: "#333",
-    });
-
-    if (!result.isConfirmed) return;
+  const handleDelete = async () => {
+    if (!deleteId) return;
 
     try {
-      setDeletingId(review.id);
+      setDeleting(true);
 
-      const response = await fetch(`/api/admin/reviews/${review.id}`, {
-        method: "DELETE",
-      });
+      const response = await fetch(
+        `/api/admin/reviews?id=${encodeURIComponent(deleteId)}`,
+        {
+          method: "DELETE",
+        },
+      );
 
-      const data = await response.json();
+      const text = await response.text();
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || "Failed to delete review.");
+      let data = {};
+
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error("Server returned an invalid response.");
       }
 
-      setReviews((prev) => prev.filter((item) => item.id !== review.id));
+      if (!response.ok) {
+        throw new Error(
+          data?.message || data?.error || "Failed to delete review.",
+        );
+      }
 
-      Swal.fire({
-        icon: "success",
-        title: "Review deleted",
-        text: "The review has been removed successfully.",
-        background: "#111",
-        color: "#fff",
-        confirmButtonColor: "#d4af37",
-        timer: 1800,
-        showConfirmButton: false,
-      });
-    } catch (error) {
-      console.error("DELETE REVIEW ERROR:", error);
+      if (!data?.success) {
+        throw new Error(data?.message || "Failed to delete review.");
+      }
 
-      Swal.fire({
-        icon: "error",
-        title: "Delete failed",
-        text: error.message || "Something went wrong.",
-        background: "#111",
-        color: "#fff",
-        confirmButtonColor: "#d4af37",
-      });
+      setDeleteId(null);
+
+      if (selectedReview?.id === deleteId) {
+        setSelectedReview(null);
+      }
+
+      await fetchReviews();
+    } catch (err) {
+      console.error("DELETE REVIEW ERROR:", err);
+
+      alert(err?.message || "Failed to delete review.");
     } finally {
-      setDeletingId(null);
+      setDeleting(false);
     }
-  }
+  };
 
-  /* =========================================================
-     ACCESS DENIED
-  ========================================================= */
-
-  if (
-    status !== "loading" &&
-    session?.user &&
-    session.user.role !== "ADMIN" &&
-    session.user.role !== "STAFF"
-  ) {
-    return (
-      <main className="min-h-screen bg-[#080808] px-6 pb-20 pt-32">
-        <div className="mx-auto max-w-2xl rounded-3xl border border-red-500/20 bg-[#111] p-10 text-center">
-          <h1 className="text-3xl font-semibold text-white">Access Denied</h1>
-
-          <p className="mt-3 text-white/40">
-            You do not have permission to manage reviews.
-          </p>
-
-          <div className="mt-7 flex justify-center gap-3">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-2 rounded-full border border-white/10 px-5 py-3 text-sm text-white/60"
-            >
-              <Home size={16} />
-              Home
-            </Link>
-
-            <Link
-              href="/dashboard"
-              className="gold-button inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold"
-            >
-              <LayoutDashboard size={16} />
-              Dashboard
-            </Link>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  /* =========================================================
-     PAGE
-  ========================================================= */
+  const filteredReviews = useMemo(() => {
+    return Array.isArray(reviews) ? reviews : [];
+  }, [reviews]);
 
   return (
-    <main className="min-h-screen bg-[#080808] px-5 pb-24 pt-28 sm:px-8 lg:px-12 xl:px-16">
-      <div className="mx-auto max-w-7xl">
-        {/* =====================================================
-            TOP NAV
-        ===================================================== */}
+    <div className="min-h-screen bg-[#090909] text-white">
+      {/* HEADER */}
+      <div className="border-b border-white/10 bg-[#0d0d0d]/90 backdrop-blur-xl">
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 p-2.5">
+                  <MessageSquare size={22} className="text-yellow-400" />
+                </div>
 
-        <div className="mb-8 flex flex-wrap items-center gap-3">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-white/55 transition hover:border-[#d4af37]/30 hover:text-[#d4af37]"
-          >
-            <Home size={15} />
-            Home
-          </Link>
+                <div>
+                  <h1 className="text-xl font-bold sm:text-2xl">
+                    Customer Reviews
+                  </h1>
 
-          <button
-            type="button"
-            onClick={() => router.back()}
-            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-white/55 transition hover:border-[#d4af37]/30 hover:text-[#d4af37]"
-          >
-            <ArrowLeft size={15} />
-            Back
-          </button>
+                  <p className="mt-1 text-xs text-gray-500 sm:text-sm">
+                    Manage customer feedback and ratings
+                  </p>
+                </div>
+              </div>
+            </div>
 
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center gap-2 rounded-full border border-[#d4af37]/20 bg-[#d4af37]/5 px-4 py-2.5 text-sm text-[#d4af37] transition hover:bg-[#d4af37]/10"
-          >
-            <LayoutDashboard size={15} />
-            Dashboard
-          </Link>
-        </div>
-
-        {/* =====================================================
-            HEADER
-        ===================================================== */}
-
-        <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
-          <div>
-            <p className="text-xs uppercase tracking-[0.4em] text-[#d4af37]">
-              Customer Feedback
-            </p>
-
-            <h1 className="mt-3 font-serif text-4xl text-white sm:text-5xl">
-              Reviews & Ratings
-            </h1>
-
-            <p className="mt-3 max-w-2xl text-sm leading-7 text-white/40">
-              Monitor customer feedback, ratings and menu performance from one
-              premium dashboard.
-            </p>
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-gray-200 transition hover:border-yellow-500/30 hover:bg-yellow-500/10 hover:text-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RefreshCw
+                size={16}
+                className={refreshing ? "animate-spin" : ""}
+              />
+              Refresh
+            </button>
           </div>
-
-          <button
-            type="button"
-            onClick={loadReviews}
-            disabled={loading}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-5 py-3 text-sm text-white/60 transition hover:border-[#d4af37]/30 hover:text-[#d4af37] disabled:opacity-50"
-          >
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-            Refresh
-          </button>
         </div>
+      </div>
 
-        {/* =====================================================
-            STATS
-        ===================================================== */}
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        {/* ERROR */}
+        {error && (
+          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-300">
+            <AlertCircle size={20} className="mt-0.5 shrink-0" />
 
-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <p className="font-medium">Unable to load reviews</p>
+
+              <p className="mt-1 text-sm text-red-300/80">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* STATS */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
-            icon={<MessageSquare size={20} />}
-            label="Total Reviews"
+            title="Total Reviews"
             value={stats.total}
+            icon={MessageSquare}
+            description="All customer reviews"
           />
 
           <StatCard
-            icon={<Star size={20} />}
-            label="Average Rating"
-            value={`${stats.average}/5`}
+            title="Average Rating"
+            value={`${stats.average.toFixed(1)} / 5`}
+            icon={Award}
+            description="Overall menu rating"
           />
 
           <StatCard
-            icon={<Award size={20} />}
-            label="5 Star Reviews"
+            title="5 Star Reviews"
             value={stats.fiveStar}
+            icon={Star}
+            description="Excellent feedback"
           />
 
           <StatCard
-            icon={<TrendingUp size={20} />}
-            label="5 Star Ratio"
-            value={`${stats.positive}%`}
+            title="1 Star Reviews"
+            value={stats.oneStar}
+            icon={AlertCircle}
+            description="Needs attention"
           />
         </div>
 
-        {/* =====================================================
-            FILTERS
-        ===================================================== */}
-
-        <div className="mt-8 rounded-2xl border border-white/10 bg-[#111] p-4">
-          <div className="flex flex-col gap-3 lg:flex-row">
-            <div className="relative flex-1">
+        {/* FILTER AREA */}
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            {/* SEARCH */}
+            <div className="relative w-full lg:max-w-md">
               <Search
                 size={18}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
               />
 
               <input
                 type="text"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search customer, email, dish or review..."
-                className="h-12 w-full rounded-xl border border-white/10 bg-white/[0.03] pl-11 pr-4 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#d4af37]/40"
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search customer, comment or menu..."
+                className="w-full rounded-xl border border-white/10 bg-black/20 py-3 pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-gray-600 focus:border-yellow-500/40 focus:ring-1 focus:ring-yellow-500/20"
               />
             </div>
 
-            <select
-              value={ratingFilter}
-              onChange={(e) => setRatingFilter(e.target.value)}
-              className="h-12 rounded-xl border border-white/10 bg-[#181818] px-4 text-sm text-white outline-none focus:border-[#d4af37]/40"
-            >
-              <option value="all">All Ratings</option>
+            {/* RATING FILTER */}
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {FILTERS.map((item) => {
+                const active = rating === item.value;
 
-              <option value="5">5 Stars</option>
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => setRating(item.value)}
+                    className={`whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-medium transition ${
+                      active
+                        ? "border-yellow-500/40 bg-yellow-500/10 text-yellow-400"
+                        : "border-white/10 bg-white/[0.03] text-gray-400 hover:border-white/20 hover:text-white"
+                    }`}
+                  >
+                    {item.value !== "ALL" && (
+                      <span className="mr-1">{item.value}★</span>
+                    )}
 
-              <option value="4">4 Stars</option>
-
-              <option value="3">3 Stars</option>
-
-              <option value="2">2 Stars</option>
-
-              <option value="1">1 Star</option>
-            </select>
+                    {item.value === "ALL" ? item.label : ""}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
-        {/* =====================================================
-            RESULTS
-        ===================================================== */}
-
-        <div className="mt-8">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-white">
-                Customer Reviews
-              </h2>
-
-              <p className="mt-1 text-sm text-white/30">
-                Showing {filteredReviews.length} of {reviews.length} reviews
-              </p>
-            </div>
-          </div>
-
-          {/* Loading */}
-
+        {/* CONTENT */}
+        <div className="mt-6">
           {loading ? (
-            <div className="grid gap-5 lg:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-2">
               {[1, 2, 3, 4].map((item) => (
-                <div
-                  key={item}
-                  className="animate-pulse rounded-2xl border border-white/10 bg-[#111] p-6"
-                >
-                  <div className="h-5 w-32 rounded bg-white/5" />
-
-                  <div className="mt-5 h-4 w-24 rounded bg-white/5" />
-
-                  <div className="mt-5 h-20 rounded bg-white/5" />
-
-                  <div className="mt-5 h-10 rounded bg-white/5" />
-                </div>
+                <LoadingCard key={item} />
               ))}
             </div>
           ) : filteredReviews.length === 0 ? (
-            <div className="rounded-3xl border border-white/10 bg-[#111] px-6 py-20 text-center">
-              <MessageSquare className="mx-auto h-12 w-12 text-white/10" />
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-6 py-16 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-white/[0.05]">
+                <MessageSquare size={24} className="text-gray-500" />
+              </div>
 
-              <h3 className="mt-5 text-xl font-semibold text-white">
-                No reviews found
-              </h3>
+              <h3 className="mt-4 text-lg font-semibold">No reviews found</h3>
 
-              <p className="mt-2 text-sm text-white/35">
-                Try changing your search or rating filter.
+              <p className="mt-2 text-sm text-gray-500">
+                {search.trim() || rating !== "ALL"
+                  ? "Try changing your search or rating filter."
+                  : "Customer reviews will appear here after they submit one."}
               </p>
             </div>
           ) : (
-            <div className="grid gap-5 lg:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-2">
               {filteredReviews.map((review) => (
-                <ReviewCard
+                <div
                   key={review.id}
-                  review={review}
-                  deletingId={deletingId}
-                  onDelete={handleDelete}
-                />
+                  className="group rounded-2xl border border-white/10 bg-white/[0.03] p-5 transition hover:border-yellow-500/20 hover:bg-white/[0.045]"
+                >
+                  {/* TOP */}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex min-w-0 items-center gap-3">
+                      {/* AVATAR */}
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-yellow-500/20 bg-yellow-500/10">
+                        {review.user?.image ? (
+                          <img
+                            src={review.user.image}
+                            alt={review.user?.name || "Customer"}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <Users size={19} className="text-yellow-400" />
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <h3 className="truncate font-semibold text-white">
+                          {review.user?.name || "Anonymous Customer"}
+                        </h3>
+
+                        <p className="truncate text-xs text-gray-500">
+                          {review.user?.email || "No email"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* DELETE */}
+                    <button
+                      type="button"
+                      onClick={() => setDeleteId(review.id)}
+                      className="rounded-lg p-2 text-gray-500 opacity-100 transition hover:bg-red-500/10 hover:text-red-400 lg:opacity-0 lg:group-hover:opacity-100"
+                      title="Delete review"
+                    >
+                      <Trash2 size={17} />
+                    </button>
+                  </div>
+
+                  {/* RATING */}
+                  <div className="mt-4 flex items-center gap-3">
+                    <Stars rating={review.rating} />
+
+                    <span className="text-xs text-gray-500">
+                      {formatDate(review.createdAt)}
+                    </span>
+                  </div>
+
+                  {/* COMMENT */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedReview(review)}
+                    className="mt-4 block w-full text-left"
+                  >
+                    <p className="line-clamp-3 text-sm leading-6 text-gray-300">
+                      “{review.comment}”
+                    </p>
+
+                    <span className="mt-2 inline-block text-xs text-yellow-500/80">
+                      View full review →
+                    </span>
+                  </button>
+
+                  {/* MENU ITEM */}
+                  {review.menuItem && (
+                    <div className="mt-4 flex items-center gap-3 rounded-xl border border-white/5 bg-black/20 p-3">
+                      {review.menuItem.image ? (
+                        <img
+                          src={review.menuItem.image}
+                          alt={review.menuItem.name}
+                          className="h-10 w-10 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.05]">
+                          <Utensils size={16} className="text-yellow-400" />
+                        </div>
+                      )}
+
+                      <div className="min-w-0">
+                        <p className="text-[11px] uppercase tracking-wider text-gray-600">
+                          Menu Item
+                        </p>
+
+                        <p className="truncate text-sm font-medium text-gray-300">
+                          {review.menuItem.name || "Unknown Menu Item"}
+                        </p>
+
+                        {typeof review.menuItem.price === "number" && (
+                          <p className="mt-0.5 text-xs text-yellow-500/80">
+                            ৳{Number(review.menuItem.price).toFixed(2)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}
         </div>
-      </div>
-    </main>
-  );
-}
+      </main>
 
-/* ===========================================================
-   STAT CARD
-=========================================================== */
-
-function StatCard({ icon, label, value }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-[#111] p-5 transition hover:-translate-y-1 hover:border-[#d4af37]/20">
-      <div className="flex items-center justify-between">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#d4af37]/10 text-[#d4af37]">
-          {icon}
-        </div>
-      </div>
-
-      <p className="mt-5 text-sm text-white/35">{label}</p>
-
-      <p className="mt-1 text-2xl font-semibold text-white">{value}</p>
-    </div>
-  );
-}
-
-/* ===========================================================
-   REVIEW CARD
-=========================================================== */
-
-function ReviewCard({ review, deletingId, onDelete }) {
-  const customerName = review.user?.name || "ST Customer";
-
-  const menuName = review.menuItem?.name || "Menu Item";
-
-  const avatar =
-    review.user?.image ||
-    `https://ui-avatars.com/api/?name=${encodeURIComponent(
-      customerName,
-    )}&background=111111&color=d4af37`;
-
-  const date = review.createdAt
-    ? new Date(review.createdAt).toLocaleDateString("en-BD", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })
-    : "Unknown date";
-
-  return (
-    <div className="group rounded-2xl border border-white/10 bg-[#111] p-6 transition hover:border-[#d4af37]/20">
-      {/* Header */}
-
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-full border border-white/10 bg-white/5">
-            <img
-              src={avatar}
-              alt={customerName}
-              className="h-full w-full object-cover"
-            />
-          </div>
-
-          <div className="min-w-0">
-            <h3 className="truncate font-semibold text-white">
-              {customerName}
-            </h3>
-
-            <p className="truncate text-xs text-white/30">
-              {review.user?.email || "No email"}
-            </p>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => onDelete(review)}
-          disabled={deletingId === review.id}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-500/10 bg-red-500/5 text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
-          title="Delete review"
+      {/* FULL REVIEW MODAL */}
+      {selectedReview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+          onClick={() => setSelectedReview(null)}
         >
-          {deletingId === review.id ? (
-            <RefreshCw size={16} className="animate-spin" />
-          ) : (
-            <Trash2 size={16} />
-          )}
-        </button>
-      </div>
+          <div
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-[#111111] p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {/* MODAL HEADER */}
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-yellow-500/20 bg-yellow-500/10">
+                  {selectedReview.user?.image ? (
+                    <img
+                      src={selectedReview.user.image}
+                      alt={selectedReview.user?.name || "Customer"}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <Users size={19} className="text-yellow-400" />
+                  )}
+                </div>
 
-      {/* Rating */}
+                <div className="min-w-0">
+                  <h3 className="truncate font-semibold">
+                    {selectedReview.user?.name || "Anonymous Customer"}
+                  </h3>
 
-      <div className="mt-5 flex items-center gap-1">
-        {[1, 2, 3, 4, 5].map((star) => (
-          <Star
-            key={star}
-            size={16}
-            className={
-              star <= review.rating
-                ? "fill-[#d4af37] text-[#d4af37]"
-                : "text-white/15"
-            }
-          />
-        ))}
+                  {selectedReview.user?.email && (
+                    <div className="mt-1 flex items-center gap-1.5 text-xs text-gray-500">
+                      <Mail size={12} />
 
-        <span className="ml-2 text-sm font-medium text-[#d4af37]">
-          {review.rating}.0
-        </span>
-      </div>
+                      <span className="truncate">
+                        {selectedReview.user.email}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-      {/* Review */}
+              <button
+                type="button"
+                onClick={() => setSelectedReview(null)}
+                className="shrink-0 rounded-lg p-2 text-gray-500 hover:bg-white/5 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
-      <p className="mt-5 leading-7 text-white/55">“{review.comment}”</p>
+            {/* RATING */}
+            <div className="mt-5 flex items-center gap-3">
+              <Stars rating={selectedReview.rating} size={17} />
 
-      {/* Menu */}
+              <span className="text-xs text-gray-500">
+                {selectedReview.rating}/5
+              </span>
+            </div>
 
-      <div className="mt-6 flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/5">
-          {review.menuItem?.image ? (
-            <img
-              src={review.menuItem.image}
-              alt={menuName}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <Utensils size={17} className="text-white/20" />
-          )}
+            {/* DATE */}
+            <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
+              <CalendarDays size={14} />
+
+              {formatDate(selectedReview.createdAt)}
+            </div>
+
+            {/* MENU ITEM */}
+            {selectedReview.menuItem && (
+              <div className="mt-4 flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                {selectedReview.menuItem.image ? (
+                  <img
+                    src={selectedReview.menuItem.image}
+                    alt={selectedReview.menuItem.name}
+                    className="h-12 w-12 rounded-lg object-cover"
+                  />
+                ) : (
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-yellow-500/10">
+                    <Utensils size={18} className="text-yellow-400" />
+                  </div>
+                )}
+
+                <div className="min-w-0">
+                  <p className="text-xs text-gray-500">Reviewed Menu Item</p>
+
+                  <p className="mt-1 truncate font-medium text-yellow-400">
+                    {selectedReview.menuItem.name}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* COMMENT */}
+            <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
+              <p className="text-xs uppercase tracking-wider text-gray-600">
+                Customer Feedback
+              </p>
+
+              <p className="mt-3 text-sm leading-7 text-gray-300">
+                “{selectedReview.comment}”
+              </p>
+            </div>
+
+            {/* DELETE */}
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteId(selectedReview.id);
+
+                setSelectedReview(null);
+              }}
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-400 transition hover:bg-red-500/15"
+            >
+              <Trash2 size={16} />
+              Delete Review
+            </button>
+          </div>
         </div>
+      )}
 
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] uppercase tracking-wider text-white/25">
-            Reviewed Dish
-          </p>
+      {/* DELETE CONFIRMATION */}
+      {deleteId && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#111111] p-6 shadow-2xl">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10">
+              <Trash2 size={21} className="text-red-400" />
+            </div>
 
-          <p className="mt-0.5 truncate text-sm font-medium text-white/70">
-            {menuName}
-          </p>
+            <h3 className="mt-4 text-lg font-semibold">Delete this review?</h3>
+
+            <p className="mt-2 text-sm leading-6 text-gray-500">
+              This action cannot be undone. The review will be permanently
+              removed.
+            </p>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setDeleteId(null)}
+                disabled={deleting}
+                className="rounded-xl border border-white/10 px-4 py-2.5 text-sm text-gray-300 transition hover:bg-white/5 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deleting && <RefreshCw size={15} className="animate-spin" />}
+
+                {deleting ? "Deleting..." : "Delete Review"}
+              </button>
+            </div>
+          </div>
         </div>
-
-        <Utensils size={15} className="text-[#d4af37]" />
-      </div>
-
-      {/* Footer */}
-
-      <div className="mt-5 flex items-center justify-between border-t border-white/5 pt-4">
-        <div className="flex items-center gap-2 text-xs text-white/25">
-          <User size={13} />
-          Customer
-        </div>
-
-        <span className="text-xs text-white/25">{date}</span>
-      </div>
+      )}
     </div>
   );
 }

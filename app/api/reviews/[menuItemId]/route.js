@@ -5,7 +5,10 @@ export async function GET(request, { params }) {
   try {
     const { menuItemId } = await params;
 
-    if (!menuItemId) {
+    // -----------------------------------------
+    // Validate menu item ID
+    // -----------------------------------------
+    if (!menuItemId || typeof menuItemId !== "string") {
       return NextResponse.json(
         {
           success: false,
@@ -15,13 +18,41 @@ export async function GET(request, { params }) {
       );
     }
 
+    // -----------------------------------------
+    // Check whether menu item exists
+    // -----------------------------------------
+    const menuItem = await prisma.menuItem.findUnique({
+      where: {
+        id: menuItemId,
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    if (!menuItem) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Menu item not found.",
+        },
+        { status: 404 },
+      );
+    }
+
+    // -----------------------------------------
+    // Fetch reviews
+    // -----------------------------------------
     const reviews = await prisma.review.findMany({
       where: {
         menuItemId,
       },
+
       orderBy: {
         createdAt: "desc",
       },
+
       select: {
         id: true,
         rating: true,
@@ -38,22 +69,44 @@ export async function GET(request, { params }) {
       },
     });
 
-    const averageRating =
-      reviews.length > 0
-        ? reviews.reduce((sum, review) => sum + review.rating, 0) /
-          reviews.length
-        : 0;
+    // -----------------------------------------
+    // Calculate rating statistics
+    // -----------------------------------------
+    const totalReviews = reviews.length;
 
+    const totalRating = reviews.reduce((sum, review) => sum + review.rating, 0);
+
+    const averageRating = totalReviews > 0 ? totalRating / totalReviews : 0;
+
+    const ratingBreakdown = {
+      5: reviews.filter((review) => review.rating === 5).length,
+      4: reviews.filter((review) => review.rating === 4).length,
+      3: reviews.filter((review) => review.rating === 3).length,
+      2: reviews.filter((review) => review.rating === 2).length,
+      1: reviews.filter((review) => review.rating === 1).length,
+    };
+
+    // -----------------------------------------
+    // Response
+    // -----------------------------------------
     return NextResponse.json({
       success: true,
+
+      menuItem: {
+        id: menuItem.id,
+        name: menuItem.name,
+      },
+
       data: reviews,
+
       stats: {
-        totalReviews: reviews.length,
+        totalReviews,
         averageRating: Number(averageRating.toFixed(1)),
+        ratingBreakdown,
       },
     });
   } catch (error) {
-    console.error("GET REVIEWS ERROR:", error);
+    console.error("GET MENU ITEM REVIEWS ERROR:", error);
 
     return NextResponse.json(
       {

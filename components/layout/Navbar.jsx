@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 
+import CustomerNotificationBell from "@/components/layout/CustomerNotificationBell";
+
 import {
   ShoppingBag,
   Menu,
@@ -53,6 +55,10 @@ export default function Navbar() {
     {
       name: "Gallery",
       href: "/gallery",
+    },
+    {
+      name: "Reviews",
+      href: "/reviews",
     },
     {
       name: "Contact",
@@ -108,6 +114,7 @@ export default function Navbar() {
       const response = await fetch("/api/cart", {
         method: "GET",
         cache: "no-store",
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -131,7 +138,11 @@ export default function Navbar() {
   useEffect(() => {
     if (status === "loading") return;
 
-    loadCartCount();
+    if (session?.user) {
+      loadCartCount();
+    } else {
+      setCartCount(0);
+    }
   }, [status, session]);
 
   // =========================================================
@@ -162,7 +173,7 @@ export default function Navbar() {
 
   useEffect(() => {
     const handleFocus = () => {
-      if (status !== "loading") {
+      if (status !== "loading" && session?.user) {
         loadCartCount();
       }
     };
@@ -172,7 +183,7 @@ export default function Navbar() {
     return () => {
       window.removeEventListener("focus", handleFocus);
     };
-  }, [status]);
+  }, [status, session]);
 
   // =========================================================
   // LOGOUT
@@ -305,6 +316,15 @@ export default function Navbar() {
             </Link>
 
             {/* ===================================================
+                CUSTOMER NOTIFICATION BELL
+                ONLY LOGGED-IN USERS
+            ==================================================== */}
+
+            {status !== "loading" && session?.user && (
+              <CustomerNotificationBell />
+            )}
+
+            {/* ===================================================
                 AUTH AREA
             ==================================================== */}
 
@@ -388,6 +408,26 @@ export default function Navbar() {
                         </span>
                       )}
                     </div>
+
+                    {/* =================================================
+                        NOTIFICATIONS
+                    ================================================== */}
+
+                    <Link
+                      href="/notifications"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="flex items-center justify-between rounded-xl px-3 py-3 text-sm text-white/75 transition-all duration-300 hover:bg-white/5 hover:text-[#d4af37]"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[#d4af37]/20 bg-[#d4af37]/5">
+                          🔔
+                        </span>
+
+                        <span>Notifications</span>
+                      </div>
+
+                      <span className="text-xs text-[#d4af37]">View</span>
+                    </Link>
 
                     {/* =================================================
                         MY ORDERS
@@ -580,6 +620,24 @@ export default function Navbar() {
                       )}
                     </div>
                   </div>
+
+                  {/* MOBILE NOTIFICATION */}
+
+                  <Link
+                    href="/notifications"
+                    onClick={() => setMobileOpen(false)}
+                    className="flex items-center justify-between rounded-xl px-4 py-3 text-sm text-white/70 transition hover:bg-white/5 hover:text-[#d4af37]"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[#d4af37]/20 bg-[#d4af37]/5">
+                        🔔
+                      </span>
+
+                      <span>Notifications</span>
+                    </div>
+
+                    <span className="text-xs text-[#d4af37]">View</span>
+                  </Link>
 
                   {/* MY ORDERS */}
 

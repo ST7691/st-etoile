@@ -2,6 +2,73 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
+/**
+ * Build lightweight cart response
+ */
+async function getCartData(userId) {
+  const cart = await prisma.cart.findUnique({
+    where: {
+      userId,
+    },
+    select: {
+      id: true,
+      items: {
+        orderBy: {
+          createdAt: "desc",
+        },
+        select: {
+          id: true,
+          quantity: true,
+          menuItem: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              price: true,
+              oldPrice: true,
+              image: true,
+              rating: true,
+              available: true,
+              category: {
+                select: {
+                  id: true,
+                  name: true,
+                  slug: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!cart) {
+    return {
+      items: [],
+      subtotal: 0,
+      itemCount: 0,
+    };
+  }
+
+  let subtotal = 0;
+  let itemCount = 0;
+
+  for (const item of cart.items) {
+    subtotal += Number(item.menuItem.price) * item.quantity;
+    itemCount += item.quantity;
+  }
+
+  return {
+    items: cart.items,
+    subtotal,
+    itemCount,
+  };
+}
+
+/**
+ * GET CART
+ */
 export async function GET() {
   try {
     const session = await auth();
@@ -16,69 +83,35 @@ export async function GET() {
       );
     }
 
-    const cart = await prisma.cart.findUnique({
-      where: {
-        userId: session.user.id,
-      },
-      include: {
-        items: {
-          include: {
-            menuItem: {
-              include: {
-                category: true,
-              },
-            },
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-        },
-      },
-    });
+    const data = await getCartData(session.user.id);
 
-    if (!cart) {
-      return NextResponse.json({
+    return NextResponse.json(
+      {
         success: true,
-        data: {
-          items: [],
-          subtotal: 0,
-          itemCount: 0,
-        },
-      });
-    }
-
-    const items = cart.items;
-
-    const subtotal = items.reduce((total, item) => {
-      return total + Number(item.menuItem.price) * item.quantity;
-    }, 0);
-
-    const itemCount = items.reduce((total, item) => {
-      return total + item.quantity;
-    }, 0);
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        items,
-        subtotal,
-        itemCount,
+        data,
       },
-    });
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
+    );
   } catch (error) {
-    console.error("CART GET ERROR:", error);
+    console.error("GET CART ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
         message: "Failed to load cart",
-        error: error.message,
       },
       { status: 500 },
     );
   }
 }
 
+/**
+ * ADD TO CART
+ */
 export async function POST(request) {
   try {
     const session = await auth();
@@ -87,7 +120,7 @@ export async function POST(request) {
       return NextResponse.json(
         {
           success: false,
-          message: "Please login first",
+          message: "Unauthorized",
         },
         { status: 401 },
       );
@@ -96,13 +129,13 @@ export async function POST(request) {
     const body = await request.json();
 
     const menuItemId = body?.menuItemId;
-    const quantity = Number(body?.quantity || 1);
+    const quantity = Number(body?.quantity ?? 1);
 
     if (!menuItemId) {
       return NextResponse.json(
         {
           success: false,
-          message: "Menu item ID is required",
+          message: "Menu item is required.",
         },
         { status: 400 },
       );
@@ -112,16 +145,21 @@ export async function POST(request) {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid quantity",
+          message: "Invalid quantity.",
         },
         { status: 400 },
       );
     }
 
-    // Find dish
+    // Only fetch required fields
     const menuItem = await prisma.menuItem.findUnique({
       where: {
         id: menuItemId,
+      },
+      select: {
+        id: true,
+        name: true,
+        available: true,
       },
     });
 
@@ -129,14 +167,12 @@ export async function POST(request) {
       return NextResponse.json(
         {
           success: false,
-          message: "Dish not found",
+          message: "Menu item not found.",
         },
         { status: 404 },
       );
     }
 
-    // IMPORTANT
-    // Current Prisma schema uses `available`
     if (!menuItem.available) {
       return NextResponse.json(
         {
@@ -147,95 +183,63 @@ export async function POST(request) {
       );
     }
 
-    // Find or create user's cart
-    let cart = await prisma.cart.findUnique({
+    // Create cart only if it doesn't exist
+    const cart = await prisma.cart.upsert({
       where: {
         userId: session.user.id,
       },
+      update: {},
+      create: {
+        userId: session.user.id,
+      },
+      select: {
+        id: true,
+      },
     });
 
-    if (!cart) {
-      cart = await prisma.cart.create({
-        data: {
-          userId: session.user.id,
-        },
-      });
-    }
-
-    // Check existing item
-    const existingItem = await prisma.cartItem.findUnique({
+    // Add/update item
+    await prisma.cartItem.upsert({
       where: {
         cartId_menuItemId: {
           cartId: cart.id,
-          menuItemId: menuItem.id,
+          menuItemId,
         },
       },
+      update: {
+        quantity: {
+          increment: quantity,
+        },
+      },
+      create: {
+        cartId: cart.id,
+        menuItemId,
+        quantity,
+      },
     });
-
-    if (existingItem) {
-      await prisma.cartItem.update({
-        where: {
-          id: existingItem.id,
-        },
-        data: {
-          quantity: existingItem.quantity + quantity,
-        },
-      });
-    } else {
-      await prisma.cartItem.create({
-        data: {
-          cartId: cart.id,
-          menuItemId: menuItem.id,
-          quantity,
-        },
-      });
-    }
 
     // Return updated cart
-    const updatedCart = await prisma.cart.findUnique({
-      where: {
-        id: cart.id,
+    const data = await getCartData(session.user.id);
+
+    return NextResponse.json(
+      {
+        success: true,
+        message: `${menuItem.name} added to cart.`,
+        data,
       },
-      include: {
-        items: {
-          include: {
-            menuItem: {
-              include: {
-                category: true,
-              },
-            },
-          },
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
         },
       },
-    });
-
-    const items = updatedCart?.items || [];
-
-    const subtotal = items.reduce((total, item) => {
-      return total + Number(item.menuItem.price) * item.quantity;
-    }, 0);
-
-    const itemCount = items.reduce((total, item) => {
-      return total + item.quantity;
-    }, 0);
-
-    return NextResponse.json({
-      success: true,
-      message: "Item added to cart",
-      data: {
-        items,
-        subtotal,
-        itemCount,
-      },
-    });
+    );
   } catch (error) {
-    console.error("CART POST ERROR:", error);
+    console.error("POST CART ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to add item to cart",
-        error: error.message,
+        message: "Unable to add item to cart.",
       },
       { status: 500 },
     );
