@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -20,13 +21,22 @@ function isValidHttpUrl(value) {
 
 /**
  * Get and validate application URL.
+ *
+ * IMPORTANT:
+ * Use APP_URL instead of NEXT_PUBLIC_APP_URL.
+ *
+ * Local:
+ * APP_URL=http://localhost:3000
+ *
+ * Production:
+ * APP_URL=https://st-etoile.vercel.app
  */
 function getAppUrl() {
-  const rawUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const rawUrl = process.env.APP_URL || "http://localhost:3000";
 
   if (!isValidHttpUrl(rawUrl)) {
     throw new Error(
-      "Invalid NEXT_PUBLIC_APP_URL. Use http://localhost:3000 for local development.",
+      "Invalid APP_URL. Use http://localhost:3000 for local development.",
     );
   }
 
@@ -145,12 +155,13 @@ export async function POST(request) {
     }
 
     // -----------------------------------------
-    // 6. App URL
+    // 6. Application URL
     // -----------------------------------------
     const appUrl = getAppUrl();
 
     const successUrl =
-      `${appUrl}/payment/stripe-success` + `?session_id={CHECKOUT_SESSION_ID}`;
+      `${appUrl}/payment/stripe-success` +
+      `?session_id={CHECKOUT_SESSION_ID}`;
 
     const cancelUrl = `${appUrl}/orders/${order.id}`;
 
@@ -158,26 +169,26 @@ export async function POST(request) {
     // 7. Create Stripe line items
     // -----------------------------------------
     //
-    // IMPORTANT:
-    // Do NOT send menuItem.image directly.
+    // Product images are intentionally omitted.
     //
-    // Some database images may be:
+    // Stripe requires absolute HTTP/HTTPS image
+    // URLs. Database images may contain:
+    //
     // /uploads/image.jpg
     // image.jpg
-    // empty strings
+    // empty values
     // invalid URLs
     //
-    // Stripe requires absolute HTTP/HTTPS URLs.
+    // Therefore we do not send menuItem.image
+    // to Stripe Checkout.
     //
-    // Therefore product images are intentionally
-    // omitted from Stripe Checkout.
-    //
-
     const lineItems = order.items.map((item) => {
       const unitAmount = Math.round(Number(item.price) * 100);
 
       if (!Number.isFinite(unitAmount) || unitAmount <= 0) {
-        throw new Error(`Invalid price for menu item: ${item.menuItem.name}`);
+        throw new Error(
+          `Invalid price for menu item: ${item.menuItem.name}`,
+        );
       }
 
       return {
@@ -266,7 +277,8 @@ export async function POST(request) {
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "payment",
 
-      customer_email: order.user?.email || session.user.email || undefined,
+      customer_email:
+        order.user?.email || session.user.email || undefined,
 
       line_items: lineItems,
 
@@ -303,8 +315,13 @@ export async function POST(request) {
     // -----------------------------------------
     // 12. Verify Stripe checkout URL
     // -----------------------------------------
-    if (!checkoutSession.url || !isValidHttpUrl(checkoutSession.url)) {
-      throw new Error("Stripe did not return a valid checkout URL.");
+    if (
+      !checkoutSession.url ||
+      !isValidHttpUrl(checkoutSession.url)
+    ) {
+      throw new Error(
+        "Stripe did not return a valid checkout URL.",
+      );
     }
 
     // -----------------------------------------
@@ -343,14 +360,22 @@ export async function POST(request) {
       },
     });
   } catch (error) {
-    console.error("STRIPE CREATE SESSION ERROR:", error);
+    console.error(
+      "STRIPE CREATE SESSION ERROR:",
+      error,
+    );
 
     return NextResponse.json(
       {
         success: false,
-        message: error?.message || "Unable to create Stripe checkout session.",
+        message:
+          error?.message ||
+          "Unable to create Stripe checkout session.",
       },
       { status: 500 },
     );
   }
 }
+
+
+
