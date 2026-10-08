@@ -1,38 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import dynamic from "next/dynamic";
-
-// Next.js Turbopack / SSR Compatible Dynamic Import
-const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
-
-// Lottie Animation Data Fetch করার জন্য Helper Component
-function RemoteLottieLoader() {
-  const [animationData, setAnimationData] = useState(null);
-
-  useEffect(() => {
-    // ফ্রি Lottie JSON লোড করার অনলাইন URL
-    fetch("https://assets2.lottiefiles.com/packages/lf20_a2chheef.json")
-      .then((res) => res.json())
-      .then((data) => setAnimationData(data))
-      .catch(() => null);
-  }, []);
-
-  if (!animationData) {
-    // JSON ফেচ হওয়া পর্যন্ত Tailwind Spinner Fallback
-    return (
-      <div className="h-16 w-16 animate-spin rounded-full border-4 border-[#D4AF37]/20 border-t-[#D4AF37]" />
-    );
-  }
-
-  return <Lottie animationData={animationData} loop={true} autoplay={true} />;
-}
 
 export default function PageLoader() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // পেজ লোড বা ডেটা রেডি হওয়ার টাইমার (২ সেকেন্ড)
+    // Page loader duration
     const timer = setTimeout(() => {
       setLoading(false);
     }, 2000);
@@ -48,9 +22,24 @@ export default function PageLoader() {
       <div className="absolute h-72 w-72 rounded-full bg-[#D4AF37]/10 blur-[100px]" />
 
       <div className="relative flex flex-col items-center justify-center">
-        {/* Lottie Animation */}
-        <div className="flex h-44 w-44 items-center justify-center sm:h-56 sm:w-56">
-          <RemoteLottieLoader />
+        {/* Premium Gold Loader */}
+        <div className="relative flex h-44 w-44 items-center justify-center sm:h-56 sm:w-56">
+          {/* Outer rotating ring */}
+          <div className="absolute h-32 w-32 rounded-full border border-[#D4AF37]/10 sm:h-40 sm:w-40" />
+
+          {/* Main rotating ring */}
+          <div className="absolute h-28 w-28 animate-spin rounded-full border-2 border-[#D4AF37]/15 border-t-[#D4AF37] border-r-[#D4AF37]/60 sm:h-36 sm:w-36" />
+
+          {/* Inner rotating ring */}
+          <div className="absolute h-20 w-20 animate-[spin_2s_linear_infinite_reverse] rounded-full border border-[#D4AF37]/30 border-b-[#D4AF37] sm:h-24 sm:w-24" />
+
+          {/* Center glow */}
+          <div className="absolute h-12 w-12 animate-pulse rounded-full bg-[#D4AF37]/10 blur-md" />
+
+          {/* ST Logo */}
+          <span className="relative z-10 font-serif text-2xl font-semibold tracking-[0.18em] text-[#D4AF37]">
+            ST
+          </span>
         </div>
 
         {/* Brand Name */}
@@ -58,9 +47,23 @@ export default function PageLoader() {
           <p className="font-serif text-xl font-semibold tracking-[0.2em] text-[#D4AF37]">
             ST
           </p>
-          <p className="mt-1 text-[10px] uppercase tracking-[0.3em] text-white/50 animate-pulse">
+
+          <p className="mt-1 animate-pulse text-[10px] uppercase tracking-[0.3em] text-white/50">
             Restaurant
           </p>
+        </div>
+
+        {/* Loading dots */}
+        <div className="mt-5 flex items-center gap-1.5">
+          <span className="h-1 w-1 animate-pulse rounded-full bg-[#D4AF37]" />
+          <span
+            className="h-1 w-1 animate-pulse rounded-full bg-[#D4AF37]"
+            style={{ animationDelay: "200ms" }}
+          />
+          <span
+            className="h-1 w-1 animate-pulse rounded-full bg-[#D4AF37]"
+            style={{ animationDelay: "400ms" }}
+          />
         </div>
       </div>
     </div>
