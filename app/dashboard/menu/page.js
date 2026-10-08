@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
@@ -15,7 +15,6 @@ import {
   X,
   Upload,
   Loader2,
-  Eye,
   EyeOff,
   Star,
   Utensils,
@@ -68,10 +67,36 @@ const emptyForm = {
 };
 
 /* =========================================================
-   PAGE
+   PAGE WRAPPER
+   IMPORTANT:
+   useSearchParams() requires Suspense in production build.
 ========================================================= */
 
 export default function MenuManagementPage() {
+  return (
+    <Suspense fallback={<MenuPageLoading />}>
+      <MenuManagementContent />
+    </Suspense>
+  );
+}
+
+/* =========================================================
+   SUSPENSE FALLBACK
+========================================================= */
+
+function MenuPageLoading() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#080808]">
+      <Loader2 size={38} className="animate-spin text-[#d4af37]" />
+    </div>
+  );
+}
+
+/* =========================================================
+   MAIN PAGE CONTENT
+========================================================= */
+
+function MenuManagementContent() {
   const { data: session, status: sessionStatus } = useSession();
 
   const searchParams = useSearchParams();
@@ -173,7 +198,7 @@ export default function MenuManagementPage() {
 
   /* =========================================================
      AUTO OPEN ADD MODAL
-     
+
      /dashboard/menu?action=add
   ========================================================= */
 
@@ -341,10 +366,6 @@ export default function MenuManagementPage() {
 
     if (!file) return;
 
-    /* -----------------------------------------
-       Allowed types
-    ----------------------------------------- */
-
     const allowedTypes = [
       "image/jpeg",
       "image/png",
@@ -367,10 +388,6 @@ export default function MenuManagementPage() {
       return;
     }
 
-    /* -----------------------------------------
-       Max 5MB
-    ----------------------------------------- */
-
     const maxSize = 5 * 1024 * 1024;
 
     if (file.size > maxSize) {
@@ -391,34 +408,18 @@ export default function MenuManagementPage() {
     try {
       setUploadingImage(true);
 
-      /* ---------------------------------------
-         Local preview
-      --------------------------------------- */
-
       const localPreview = URL.createObjectURL(file);
 
       setImagePreview(localPreview);
-
-      /* ---------------------------------------
-         FormData
-      --------------------------------------- */
 
       const formData = new FormData();
 
       formData.append("file", file);
 
-      /* ---------------------------------------
-         Upload API
-      --------------------------------------- */
-
       const response = await fetch("/api/admin/upload", {
         method: "POST",
         body: formData,
       });
-
-      /* ---------------------------------------
-         Parse response safely
-      --------------------------------------- */
 
       let result;
 
@@ -430,27 +431,15 @@ export default function MenuManagementPage() {
 
       console.log("UPLOAD RESPONSE:", result);
 
-      /* ---------------------------------------
-         HTTP ERROR
-      --------------------------------------- */
-
       if (!response.ok) {
         throw new Error(
           result?.message || `Upload failed with status ${response.status}.`,
         );
       }
 
-      /* ---------------------------------------
-         API ERROR
-      --------------------------------------- */
-
       if (!result?.success) {
         throw new Error(result?.message || "Image upload failed.");
       }
-
-      /* ---------------------------------------
-         CLOUDINARY URL
-      --------------------------------------- */
 
       const uploadedUrl = result?.data?.url || result?.data?.secure_url;
 
@@ -458,19 +447,11 @@ export default function MenuManagementPage() {
         throw new Error("Image uploaded but Cloudinary URL was not returned.");
       }
 
-      /* ---------------------------------------
-         Save URL in form
-      --------------------------------------- */
-
       setForm((prev) => ({
         ...prev,
 
         image: uploadedUrl,
       }));
-
-      /* ---------------------------------------
-         Cloudinary preview
-      --------------------------------------- */
 
       setImagePreview(uploadedUrl);
 
@@ -486,10 +467,6 @@ export default function MenuManagementPage() {
       });
     } catch (error) {
       console.error("IMAGE UPLOAD ERROR:", error);
-
-      /* ---------------------------------------
-         Restore previous image
-      --------------------------------------- */
 
       setImagePreview(form.image || "");
 
@@ -518,10 +495,6 @@ export default function MenuManagementPage() {
     if (saving || uploadingImage) {
       return;
     }
-
-    /* -----------------------------------------
-       Validation
-    ----------------------------------------- */
 
     if (!form.name.trim()) {
       Swal.fire({
@@ -624,10 +597,6 @@ export default function MenuManagementPage() {
             `Failed to ${editingItem ? "update" : "create"} menu item.`,
         );
       }
-
-      /* ---------------------------------------
-         Update local state
-      --------------------------------------- */
 
       if (editingItem) {
         setMenuItems((prev) =>
@@ -772,10 +741,6 @@ export default function MenuManagementPage() {
 
     const newValue = !oldValue;
 
-    /* -----------------------------------------
-       Optimistic UI
-    ----------------------------------------- */
-
     setMenuItems((prev) =>
       prev.map((menu) =>
         menu.id === item.id
@@ -811,10 +776,6 @@ export default function MenuManagementPage() {
       );
     } catch (error) {
       console.error("TOGGLE ERROR:", error);
-
-      /* ---------------------------------------
-         Rollback
-      --------------------------------------- */
 
       setMenuItems((prev) =>
         prev.map((menu) =>
@@ -884,9 +845,7 @@ export default function MenuManagementPage() {
   return (
     <main className="min-h-screen bg-[#080808] px-4 py-8 text-white sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        {/* ===============================================
-            HEADER
-        =============================================== */}
+        {/* HEADER */}
 
         <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -929,9 +888,7 @@ export default function MenuManagementPage() {
           </div>
         </div>
 
-        {/* ===============================================
-            STATS
-        =============================================== */}
+        {/* STATS */}
 
         <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard icon={Utensils} label="Total Items" value={stats.total} />
@@ -958,9 +915,7 @@ export default function MenuManagementPage() {
           />
         </div>
 
-        {/* ===============================================
-            FILTER BAR
-        =============================================== */}
+        {/* FILTER BAR */}
 
         <div className="mb-6 rounded-2xl border border-white/[0.08] bg-[#101010] p-4">
           <div className="grid gap-3 lg:grid-cols-[1fr_220px_200px]">
@@ -1048,9 +1003,7 @@ export default function MenuManagementPage() {
           </div>
         </div>
 
-        {/* ===============================================
-            CONTENT
-        =============================================== */}
+        {/* CONTENT */}
 
         {loading ? (
           <LoadingGrid />
@@ -1072,9 +1025,7 @@ export default function MenuManagementPage() {
         )}
       </div>
 
-      {/* ===============================================
-          MODAL
-      =============================================== */}
+      {/* MODAL */}
 
       {modalOpen && (
         <MenuModal
@@ -1152,16 +1103,12 @@ function MenuCard({ item, onEdit, onDelete, onToggle, deletingId }) {
 
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20" />
 
-        {/* Featured */}
-
         {item.featured && (
           <div className="absolute left-3 top-3 flex items-center gap-1 rounded-full bg-[#d4af37] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-black">
             <Sparkles size={11} />
             Featured
           </div>
         )}
-
-        {/* Availability */}
 
         <div className="absolute right-3 top-3">
           <button
@@ -1175,8 +1122,6 @@ function MenuCard({ item, onEdit, onDelete, onToggle, deletingId }) {
             {item.available ? "Available" : "Unavailable"}
           </button>
         </div>
-
-        {/* Price */}
 
         <div className="absolute bottom-3 left-3">
           <div className="flex items-center gap-2">
@@ -1216,8 +1161,6 @@ function MenuCard({ item, onEdit, onDelete, onToggle, deletingId }) {
           {item.description || "No description available."}
         </p>
 
-        {/* Featured toggle */}
-
         <div className="mt-4 flex items-center justify-between border-t border-white/[0.06] pt-4">
           <button
             onClick={() => onToggle(item, "featured")}
@@ -1240,8 +1183,6 @@ function MenuCard({ item, onEdit, onDelete, onToggle, deletingId }) {
             {item._count?.reviews || 0} reviews
           </span>
         </div>
-
-        {/* ACTIONS */}
 
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button

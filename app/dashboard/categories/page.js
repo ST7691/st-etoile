@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Image from "next/image";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
@@ -19,7 +19,11 @@ import {
   Utensils,
 } from "lucide-react";
 
-export default function CategoriesPage() {
+/* =========================================================
+   CATEGORIES PAGE CONTENT
+========================================================= */
+
+function CategoriesPageContent() {
   const { data: session, status } = useSession();
   const searchParams = useSearchParams();
 
@@ -186,9 +190,6 @@ export default function CategoriesPage() {
       return;
     }
 
-    // -------------------------
-    // Allowed types
-    // -------------------------
     const allowedTypes = [
       "image/jpeg",
       "image/png",
@@ -210,9 +211,6 @@ export default function CategoriesPage() {
       return;
     }
 
-    // -------------------------
-    // Max 5MB
-    // -------------------------
     const maxSize = 5 * 1024 * 1024;
 
     if (file.size > maxSize) {
@@ -232,23 +230,14 @@ export default function CategoriesPage() {
     try {
       setUploadingImage(true);
 
-      // -------------------------
-      // Instant local preview
-      // -------------------------
       const localPreview = URL.createObjectURL(file);
 
       setImagePreview(localPreview);
 
-      // -------------------------
-      // FormData
-      // -------------------------
       const formData = new FormData();
 
       formData.append("file", file);
 
-      // -------------------------
-      // Upload API
-      // -------------------------
       const response = await fetch("/api/admin/upload", {
         method: "POST",
         body: formData,
@@ -274,25 +263,17 @@ export default function CategoriesPage() {
         throw new Error(result?.message || "Image upload failed.");
       }
 
-      // -------------------------
-      // Cloudinary URL
-      // -------------------------
       const uploadedUrl = result?.data?.url || result?.data?.secure_url;
 
       if (!uploadedUrl) {
         throw new Error("Image uploaded but Cloudinary URL was not returned.");
       }
 
-      // -------------------------
-      // Save URL in form
-      // -------------------------
       setForm((prev) => ({
         ...prev,
         image: uploadedUrl,
       }));
 
-      // Replace blob preview
-      // with Cloudinary URL
       setImagePreview(uploadedUrl);
 
       Swal.fire({
@@ -308,7 +289,6 @@ export default function CategoriesPage() {
     } catch (error) {
       console.error("CATEGORY IMAGE UPLOAD ERROR:", error);
 
-      // Restore old image
       setImagePreview(form.image || "");
 
       Swal.fire({
@@ -322,7 +302,6 @@ export default function CategoriesPage() {
     } finally {
       setUploadingImage(false);
 
-      // Allow same file selection again
       event.target.value = "";
     }
   }
@@ -346,14 +325,16 @@ export default function CategoriesPage() {
       return;
     }
 
+    const wasEditing = Boolean(editingCategory);
+
     try {
       setSaving(true);
 
-      const url = editingCategory
+      const url = wasEditing
         ? `/api/admin/categories/${editingCategory.id}`
         : "/api/admin/categories";
 
-      const method = editingCategory ? "PATCH" : "POST";
+      const method = wasEditing ? "PATCH" : "POST";
 
       const response = await fetch(url, {
         method,
@@ -399,9 +380,9 @@ export default function CategoriesPage() {
 
       Swal.fire({
         icon: "success",
-        title: editingCategory ? "Category updated" : "Category created",
+        title: wasEditing ? "Category updated" : "Category created",
 
-        text: editingCategory
+        text: wasEditing
           ? "Category updated successfully."
           : "Category created successfully.",
 
@@ -551,9 +532,7 @@ export default function CategoriesPage() {
   return (
     <main className="min-h-screen bg-[#080808] px-4 py-8 text-white sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        {/* =====================
-            HEADER
-        ====================== */}
+        {/* HEADER */}
         <div className="mb-8 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="mb-2 flex items-center gap-2">
@@ -582,9 +561,7 @@ export default function CategoriesPage() {
           </button>
         </div>
 
-        {/* =====================
-            STATS
-        ====================== */}
+        {/* STATS */}
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-[#111] p-5">
             <div className="flex items-center justify-between">
@@ -646,9 +623,7 @@ export default function CategoriesPage() {
           </div>
         </div>
 
-        {/* =====================
-            SEARCH
-        ====================== */}
+        {/* SEARCH */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row">
           <div className="relative flex-1">
             <Search
@@ -674,14 +649,10 @@ export default function CategoriesPage() {
           </button>
         </div>
 
-        {/* =====================
-            CATEGORY LIST
-        ====================== */}
+        {/* CATEGORY LIST */}
         {loading ? (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {Array.from({
-              length: 8,
-            }).map((_, index) => (
+            {Array.from({ length: 8 }).map((_, index) => (
               <div
                 key={index}
                 className="h-80 animate-pulse rounded-2xl border border-white/10 bg-[#111]"
@@ -794,9 +765,7 @@ export default function CategoriesPage() {
         )}
       </div>
 
-      {/* ==================================================
-          ADD / EDIT CATEGORY MODAL
-      ================================================== */}
+      {/* ADD / EDIT CATEGORY MODAL */}
       {modalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
           <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#111] shadow-2xl">
@@ -891,9 +860,7 @@ export default function CategoriesPage() {
                   />
                 </div>
 
-                {/* ==================================================
-                    IMAGE UPLOAD
-                ================================================== */}
+                {/* IMAGE UPLOAD */}
                 <div>
                   <div className="mb-2 flex items-center justify-between">
                     <label className="block text-sm font-medium text-white">
@@ -931,12 +898,10 @@ export default function CategoriesPage() {
                         </div>
                       )}
 
-                      {/* DARK OVERLAY */}
                       {imagePreview && (
                         <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
                       )}
 
-                      {/* UPLOAD LOADING */}
                       {uploadingImage && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/75 backdrop-blur-sm">
                           <Loader2
@@ -1028,5 +993,24 @@ export default function CategoriesPage() {
         </div>
       )}
     </main>
+  );
+}
+
+/* =========================================================
+   SUSPENSE WRAPPER
+   Required for useSearchParams() during production build
+========================================================= */
+
+export default function CategoriesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#080808]">
+          <Loader2 size={35} className="animate-spin text-[#d4af37]" />
+        </div>
+      }
+    >
+      <CategoriesPageContent />
+    </Suspense>
   );
 }
