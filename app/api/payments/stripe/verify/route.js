@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
 
@@ -20,7 +19,7 @@ export async function GET(request) {
       );
     }
 
-    // Get Stripe Checkout Session
+    // 1. Retrieve Checkout Session directly from Stripe
     const checkoutSession = await stripe.checkout.sessions.retrieve(sessionId);
 
     if (!checkoutSession) {
@@ -33,31 +32,22 @@ export async function GET(request) {
       );
     }
 
-    // Get order ID from Stripe metadata
-    const orderId = checkoutSession.metadata?.orderId;
+    // 2. Get metadata from Stripe
+    const metadata = checkoutSession.metadata || {};
+
+    const orderId = metadata.orderId;
 
     if (!orderId) {
       return NextResponse.json(
         {
           success: false,
-          message: "Order information was not found in Stripe session.",
+          message: "Order ID was not found in Stripe session.",
         },
         { status: 400 },
       );
     }
 
-    // Try to get current logged-in user
-    let session = null;
-
-    try {
-      session = await auth();
-    } catch (authError) {
-      console.error("STRIPE VERIFY AUTH WARNING:", authError);
-    }
-
-    const userId = session?.user?.id || null;
-
-    // Find order
+    // 3. Find order
     const order = await prisma.order.findUnique({
       where: {
         id: orderId,
@@ -77,44 +67,22 @@ export async function GET(request) {
       );
     }
 
-    /*
-      IMPORTANT:
-
-      On Stripe production callback, Auth session can sometimes
-      be unavailable or have a different user ID.
-
-      Stripe session_id is already being verified directly with Stripe,
-      and the orderId comes from Stripe metadata.
-
-      Therefore:
-      - If a logged-in user exists, verify ownership.
-      - If no session is available, continue with Stripe verification.
-    */
-
-    if (userId && order.userId !== userId) {
-      console.warn("STRIPE VERIFY USER MISMATCH:", {
-        orderId: order.id,
-        orderUserId: order.userId,
-        sessionUserId: userId,
-      });
-
-      return NextResponse.json(
-        {
-          success: false,
-          message: "This Stripe payment belongs to a different account.",
-        },
-        { status: 403 },
-      );
-    }
-
     const stripePaymentStatus = checkoutSession.payment_status;
     const stripeSessionStatus = checkoutSession.status;
 
-    /*
-      PAYMENT SUCCESS
-    */
+    // 4. Payment successful
     if (stripePaymentStatus === "paid") {
-      await prisma.payment.updateMany({
+      if (!order.payment) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Payment record was not found for this order.",
+          },
+          { status: 404 },
+        );
+      }
+
+      await prisma.payment.update({
         where: {
           orderId: order.id,
         },
@@ -123,13 +91,14 @@ export async function GET(request) {
 
           transactionId:
             checkoutSession.payment_intent ||
-            order.payment?.transactionId ||
+            order.payment.transactionId ||
             null,
 
-          paidAt: order.payment?.paidAt || new Date(),
+          paidAt: order.payment.paidAt || new Date(),
         },
       });
 
+      // Confirm order after successful payment
       if (order.status !== "CANCELLED") {
         await prisma.order.update({
           where: {
@@ -142,21 +111,21 @@ export async function GET(request) {
       }
     }
 
-    /*
-      PAYMENT EXPIRED / FAILED
-    */
+    // 5. Expired unpaid checkout
     if (stripePaymentStatus === "unpaid" && stripeSessionStatus === "expired") {
-      await prisma.payment.updateMany({
-        where: {
-          orderId: order.id,
-        },
-        data: {
-          status: "FAILED",
-        },
-      });
+      if (order.payment) {
+        await prisma.payment.update({
+          where: {
+            orderId: order.id,
+          },
+          data: {
+            status: "FAILED",
+          },
+        });
+      }
     }
 
-    // Get latest payment state
+    // 6. Get latest payment
     const updatedPayment = await prisma.payment.findUnique({
       where: {
         orderId: order.id,
