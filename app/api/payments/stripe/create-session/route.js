@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -20,19 +19,42 @@ function isValidHttpUrl(value) {
 }
 
 /**
- * Get and validate application URL.
- *
- * IMPORTANT:
- * Use APP_URL instead of NEXT_PUBLIC_APP_URL.
- *
- * Local:
- * APP_URL=http://localhost:3000
+ * Get the correct application URL.
  *
  * Production:
- * APP_URL=https://st-etoile.vercel.app
+ * Always use the live Vercel domain.
+ *
+ * Preview:
+ * Use the current Vercel preview URL.
+ *
+ * Local:
+ * Use APP_URL / NEXT_PUBLIC_APP_URL / localhost.
+ *
+ * IMPORTANT:
+ * Production NEVER falls back to localhost.
  */
 function getAppUrl() {
-  const rawUrl = process.env.APP_URL || "http://localhost:3000";
+  // -------------------------------------------------------
+  // PRODUCTION
+  // -------------------------------------------------------
+  if (process.env.VERCEL_ENV === "production") {
+    return "https://st-etoile.vercel.app";
+  }
+
+  // -------------------------------------------------------
+  // VERCEL PREVIEW
+  // -------------------------------------------------------
+  if (process.env.VERCEL_ENV === "preview" && process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+
+  // -------------------------------------------------------
+  // LOCAL DEVELOPMENT
+  // -------------------------------------------------------
+  const rawUrl =
+    process.env.APP_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    "http://localhost:3000";
 
   if (!isValidHttpUrl(rawUrl)) {
     throw new Error(
@@ -45,9 +67,10 @@ function getAppUrl() {
 
 export async function POST(request) {
   try {
-    // -----------------------------------------
-    // 1. Check authentication
-    // -----------------------------------------
+    // =====================================================
+    // 1. CHECK AUTHENTICATION
+    // =====================================================
+
     const session = await auth();
 
     if (!session?.user?.id) {
@@ -60,10 +83,12 @@ export async function POST(request) {
       );
     }
 
-    // -----------------------------------------
-    // 2. Read request body
-    // -----------------------------------------
+    // =====================================================
+    // 2. READ REQUEST BODY
+    // =====================================================
+
     const body = await request.json();
+
     const { orderId } = body;
 
     if (!orderId) {
@@ -76,9 +101,10 @@ export async function POST(request) {
       );
     }
 
-    // -----------------------------------------
-    // 3. Find user's order
-    // -----------------------------------------
+    // =====================================================
+    // 3. FIND USER'S ORDER
+    // =====================================================
+
     const order = await prisma.order.findFirst({
       where: {
         id: orderId,
@@ -87,7 +113,9 @@ export async function POST(request) {
 
       include: {
         user: true,
+
         deliveryAddress: true,
+
         payment: true,
 
         items: {
@@ -108,9 +136,10 @@ export async function POST(request) {
       );
     }
 
-    // -----------------------------------------
-    // 4. Validate order
-    // -----------------------------------------
+    // =====================================================
+    // 4. VALIDATE ORDER
+    // =====================================================
+
     if (order.status === "CANCELLED") {
       return NextResponse.json(
         {
@@ -141,9 +170,10 @@ export async function POST(request) {
       );
     }
 
-    // -----------------------------------------
-    // 5. Validate order items
-    // -----------------------------------------
+    // =====================================================
+    // 5. VALIDATE ORDER ITEMS
+    // =====================================================
+
     if (!order.items?.length) {
       return NextResponse.json(
         {
@@ -154,41 +184,29 @@ export async function POST(request) {
       );
     }
 
-    // -----------------------------------------
-    // 6. Application URL
-    // -----------------------------------------
+    // =====================================================
+    // 6. GET APPLICATION URL
+    // =====================================================
+
     const appUrl = getAppUrl();
 
+    // IMPORTANT:
+    // Stripe will return the customer here after payment.
     const successUrl =
-      `${appUrl}/payment/stripe-success` +
-      `?session_id={CHECKOUT_SESSION_ID}`;
+      `${appUrl}/payment/stripe-success` + `?session_id={CHECKOUT_SESSION_ID}`;
 
+    // Customer returns here if payment is cancelled.
     const cancelUrl = `${appUrl}/orders/${order.id}`;
 
-    // -----------------------------------------
-    // 7. Create Stripe line items
-    // -----------------------------------------
-    //
-    // Product images are intentionally omitted.
-    //
-    // Stripe requires absolute HTTP/HTTPS image
-    // URLs. Database images may contain:
-    //
-    // /uploads/image.jpg
-    // image.jpg
-    // empty values
-    // invalid URLs
-    //
-    // Therefore we do not send menuItem.image
-    // to Stripe Checkout.
-    //
+    // =====================================================
+    // 7. CREATE STRIPE LINE ITEMS
+    // =====================================================
+
     const lineItems = order.items.map((item) => {
       const unitAmount = Math.round(Number(item.price) * 100);
 
       if (!Number.isFinite(unitAmount) || unitAmount <= 0) {
-        throw new Error(
-          `Invalid price for menu item: ${item.menuItem.name}`,
-        );
+        throw new Error(`Invalid price for menu item: ${item.menuItem.name}`);
       }
 
       return {
@@ -206,19 +224,20 @@ export async function POST(request) {
           unit_amount: unitAmount,
         },
 
-        quantity: item.quantity,
+        quantity: Number(item.quantity),
       };
     });
 
-    // -----------------------------------------
-    // 8. Delivery fee
-    // -----------------------------------------
+    // =====================================================
+    // 8. DELIVERY FEE
+    // =====================================================
+
     const deliveryFee = Number(order.deliveryFee || 0);
 
     if (deliveryFee > 0) {
       const deliveryAmount = Math.round(deliveryFee * 100);
 
-      if (!Number.isFinite(deliveryAmount)) {
+      if (!Number.isFinite(deliveryAmount) || deliveryAmount <= 0) {
         throw new Error("Invalid delivery fee.");
       }
 
@@ -228,6 +247,7 @@ export async function POST(request) {
 
           product_data: {
             name: "Delivery Fee",
+
             description: "ST Restaurant home delivery",
           },
 
@@ -238,9 +258,10 @@ export async function POST(request) {
       });
     }
 
-    // -----------------------------------------
-    // 9. Discount
-    // -----------------------------------------
+    // =====================================================
+    // 9. DISCOUNT
+    // =====================================================
+
     const discount = Number(order.discount || 0);
 
     let discounts;
@@ -254,8 +275,11 @@ export async function POST(request) {
 
       const coupon = await stripe.coupons.create({
         amount_off: discountAmount,
+
         currency: "usd",
+
         duration: "once",
+
         name: `ST Restaurant Discount - ${order.orderNumber}`,
       });
 
@@ -266,19 +290,20 @@ export async function POST(request) {
       ];
     }
 
-    // -----------------------------------------
-    // 10. Transaction ID
-    // -----------------------------------------
+    // =====================================================
+    // 10. TRANSACTION ID
+    // =====================================================
+
     const transactionId = `ST-${order.orderNumber}-${Date.now()}`;
 
-    // -----------------------------------------
-    // 11. Create Stripe Checkout Session
-    // -----------------------------------------
+    // =====================================================
+    // 11. CREATE STRIPE CHECKOUT SESSION
+    // =====================================================
+
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "payment",
 
-      customer_email:
-        order.user?.email || session.user.email || undefined,
+      customer_email: order.user?.email || session.user.email || undefined,
 
       line_items: lineItems,
 
@@ -286,8 +311,11 @@ export async function POST(request) {
 
       metadata: {
         orderId: order.id,
+
         userId: session.user.id,
+
         orderNumber: order.orderNumber,
+
         transactionId,
       },
 
@@ -306,27 +334,26 @@ export async function POST(request) {
       payment_intent_data: {
         metadata: {
           orderId: order.id,
+
           orderNumber: order.orderNumber,
+
           userId: session.user.id,
         },
       },
     });
 
-    // -----------------------------------------
-    // 12. Verify Stripe checkout URL
-    // -----------------------------------------
-    if (
-      !checkoutSession.url ||
-      !isValidHttpUrl(checkoutSession.url)
-    ) {
-      throw new Error(
-        "Stripe did not return a valid checkout URL.",
-      );
+    // =====================================================
+    // 12. VALIDATE STRIPE CHECKOUT URL
+    // =====================================================
+
+    if (!checkoutSession.url || !isValidHttpUrl(checkoutSession.url)) {
+      throw new Error("Stripe did not return a valid checkout URL.");
     }
 
-    // -----------------------------------------
-    // 13. Create / update Payment
-    // -----------------------------------------
+    // =====================================================
+    // 13. UPDATE PAYMENT
+    // =====================================================
+
     await prisma.payment.upsert({
       where: {
         orderId: order.id,
@@ -334,48 +361,50 @@ export async function POST(request) {
 
       update: {
         method: "STRIPE",
+
         status: "PENDING",
+
         transactionId,
+
         amount: order.total,
       },
 
       create: {
         orderId: order.id,
+
         method: "STRIPE",
+
         status: "PENDING",
+
         transactionId,
+
         amount: order.total,
       },
     });
 
-    // -----------------------------------------
-    // 14. Return checkout URL
-    // -----------------------------------------
+    // =====================================================
+    // 14. RETURN CHECKOUT URL
+    // =====================================================
+
     return NextResponse.json({
       success: true,
 
       data: {
         checkoutUrl: checkoutSession.url,
+
         sessionId: checkoutSession.id,
       },
     });
   } catch (error) {
-    console.error(
-      "STRIPE CREATE SESSION ERROR:",
-      error,
-    );
+    console.error("STRIPE CREATE SESSION ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
-        message:
-          error?.message ||
-          "Unable to create Stripe checkout session.",
+
+        message: error?.message || "Unable to create Stripe checkout session.",
       },
       { status: 500 },
     );
   }
 }
-
-
-
