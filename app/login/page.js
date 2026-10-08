@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -14,7 +14,7 @@ import {
   UtensilsCrossed,
 } from "lucide-react";
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -24,7 +24,6 @@ export default function LoginPage() {
   });
 
   const [showPassword, setShowPassword] = useState(false);
-
   const [loading, setLoading] = useState(false);
 
   function handleChange(event) {
@@ -34,6 +33,17 @@ export default function LoginPage() {
       ...previous,
       [name]: value,
     }));
+  }
+
+  function showAlert(icon, title, text) {
+    Swal.fire({
+      icon,
+      title,
+      text,
+      confirmButtonColor: "#d4af37",
+      background: "#111111",
+      color: "#f5f1e8",
+    });
   }
 
   async function handleSubmit(event) {
@@ -92,17 +102,6 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function showAlert(icon, title, text) {
-    Swal.fire({
-      icon,
-      title,
-      text,
-      confirmButtonColor: "#d4af37",
-      background: "#111111",
-      color: "#f5f1e8",
-    });
   }
 
   return (
@@ -215,7 +214,8 @@ export default function LoginPage() {
                 </>
               )}
             </button>
-            {/* google */}
+
+            {/* Google */}
             <div className="my-6 flex items-center gap-4">
               <div className="h-px flex-1 bg-white/10" />
 
@@ -278,5 +278,19 @@ export default function LoginPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-[#080808]">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-[#d4af37]/30 border-t-[#d4af37]" />
+        </main>
+      }
+    >
+      <LoginPageContent />
+    </Suspense>
   );
 }
