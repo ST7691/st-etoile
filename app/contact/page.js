@@ -9,10 +9,67 @@ import {
   Utensils,
 } from "lucide-react";
 
+const SITE_URL = "https://st-etoile.vercel.app";
+const SITE_NAME = "ST Restaurant";
+const CONTACT_URL = `${SITE_URL}/contact`;
+const CONTACT_IMAGE = `${SITE_URL}/opengraph-image`;
+
+const CONTACT_TITLE = "Contact ST Restaurant | Reservations & Inquiries";
+const CONTACT_DESCRIPTION =
+  "Contact ST Restaurant for table reservations, menu inquiries, dining information, delivery questions, and special events. We look forward to hearing from you.";
+
 export const metadata = {
-  title: "Contact",
-  description:
-    "Contact ST Restaurant for reservations, dining information, delivery and general inquiries.",
+  title: {
+    absolute: CONTACT_TITLE,
+  },
+
+  description: CONTACT_DESCRIPTION,
+
+  alternates: {
+    canonical: "/contact",
+  },
+
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
+
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: CONTACT_URL,
+    siteName: SITE_NAME,
+    title: CONTACT_TITLE,
+    description: CONTACT_DESCRIPTION,
+    images: [
+      {
+        url: CONTACT_IMAGE,
+        width: 1200,
+        height: 630,
+        alt: "Contact ST Restaurant — Reservations and Inquiries",
+        type: "image/png",
+      },
+    ],
+  },
+
+  twitter: {
+    card: "summary_large_image",
+    title: CONTACT_TITLE,
+    description: CONTACT_DESCRIPTION,
+    images: [
+      {
+        url: CONTACT_IMAGE,
+        alt: "Contact ST Restaurant — Reservations and Inquiries",
+      },
+    ],
+  },
 };
 
 const contactInfo = [
@@ -25,7 +82,7 @@ const contactInfo = [
   {
     icon: Mail,
     title: "Email",
-    value: "hello@strestaurant.com",
+    value: "[hello@strestaurant.com](mailto:hello@strestaurant.com)",
     description: "We usually reply within one business day",
   },
   {
@@ -45,10 +102,11 @@ const contactInfo = [
 export default function ContactPage() {
   return (
     <main className="min-h-screen bg-[#080808] text-white">
-      {/* HERO */}
+      {/* HERO */}{" "}
       <section className="relative overflow-hidden border-b border-white/5">
+        {" "}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(212,175,55,0.12),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(212,175,55,0.07),transparent_35%)]" />
-
+        ```
         <div className="relative mx-auto max-w-7xl px-4 pb-20 pt-36 sm:px-6 lg:px-8 lg:pb-24">
           <div className="mx-auto max-w-3xl text-center">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#d4af37]/20 bg-[#d4af37]/5 px-4 py-2 text-xs uppercase tracking-[0.25em] text-[#d4af37]">
@@ -68,7 +126,6 @@ export default function ContactPage() {
           </div>
         </div>
       </section>
-
       {/* CONTACT INFO */}
       <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -100,7 +157,6 @@ export default function ContactPage() {
           })}
         </div>
       </section>
-
       {/* CONTACT AREA */}
       <section className="mx-auto max-w-7xl px-4 pb-20 sm:px-6 lg:px-8 lg:pb-28">
         <div className="grid overflow-hidden rounded-[2rem] border border-white/5 bg-[#0d0d0d] lg:grid-cols-2">
