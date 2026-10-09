@@ -1,4 +1,3 @@
-
 import "./globals.css";
 
 import PageLoader from "@/components/PageLoader";
@@ -7,12 +6,13 @@ import ConditionalLayout from "@/components/layout/ConditionalLayout";
 
 const SITE_URL = "https://st-etoile.vercel.app";
 const SITE_NAME = "ST Restaurant";
+
 const DEFAULT_TITLE = "ST Restaurant | Fine Dining & Fresh Cuisine";
+
 const DEFAULT_DESCRIPTION =
-  "Discover ST Restaurant for delicious cuisine, fresh meals, premium dining, table reservations, and convenient food delivery.";
+  "Discover ST Restaurant for delicious cuisine, freshly prepared meals, premium dining, table reservations, and convenient food delivery.";
 
 const OG_IMAGE = `${SITE_URL}/opengraph-image`;
-const LOGO_URL = `${SITE_URL}/icon.png`;
 
 export const metadata = {
   metadataBase: new URL(SITE_URL),
@@ -32,10 +32,10 @@ export const metadata = {
     "restaurant",
     "fine dining",
     "fresh cuisine",
+    "restaurant menu",
     "online food ordering",
     "food delivery",
-    "restaurant reservations",
-    "restaurant menu",
+    "table reservations",
     "gourmet food",
   ],
 
@@ -112,4 +112,3 @@ export default function RootLayout({ children }) {
     </html>
   );
 }
-
