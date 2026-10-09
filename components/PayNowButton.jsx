@@ -7,55 +7,53 @@ import Swal from "sweetalert2";
 export default function PayNowButton({ orderId, amount }) {
   const [loading, setLoading] = useState(false);
 
-  const handlePayment = async () => {
+  async function handlePayment() {
     if (loading) return;
 
+    const confirmation = await Swal.fire({
+      title: "Proceed to Payment?",
+      html: `<div style="font-size:14px">You will be redirected to SSLCommerz to complete your payment.<br/><br/><strong>Amount: ৳${Number(amount).toFixed(2)}</strong></div>`,
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "Pay Now",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#d4af37",
+      background: "#111111",
+      color: "#f5f1e8",
+    });
+
+    if (!confirmation.isConfirmed) return;
+
+    setLoading(true);
+
     try {
-      setLoading(true);
-
-      const result = await Swal.fire({
-        title: "Proceed to Payment?",
-        html: `
-          <div style="font-size:14px">
-            You will be redirected to SSLCommerz
-            to securely complete your payment.
-            <br/><br/>
-            <strong>Amount: ৳${Number(amount).toFixed(2)}</strong>
-          </div>
-        `,
-        icon: "question",
-        showCancelButton: true,
-        confirmButtonText: "Pay Now",
-        cancelButtonText: "Cancel",
-        confirmButtonColor: "#d4af37",
-        background: "#111111",
-        color: "#f5f1e8",
-      });
-
-      if (!result.isConfirmed) {
-        setLoading(false);
-        return;
-      }
-
       const response = await fetch("/api/payments/sslcommerz/retry", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          orderId,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || "Payment initialization failed.");
+      if (!response.ok || !data?.success) {
+        throw new Error(
+          data?.message ||
+            `Payment initialization failed (${response.status}).`,
+        );
       }
 
-      window.location.href = data.data.gatewayUrl;
+      const gatewayUrl = data?.data?.gatewayUrl;
+
+      if (
+        typeof gatewayUrl !== "string" ||
+        !gatewayUrl.startsWith("https://")
+      ) {
+        throw new Error("SSLCommerz did not return a valid payment URL.");
+      }
+
+      window.location.assign(gatewayUrl);
     } catch (error) {
-      console.error(error);
+      console.error("SSLCommerz payment error:", error);
 
       await Swal.fire({
         icon: "error",
@@ -65,10 +63,10 @@ export default function PayNowButton({ orderId, amount }) {
         background: "#111111",
         color: "#f5f1e8",
       });
-
+    } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
     <button

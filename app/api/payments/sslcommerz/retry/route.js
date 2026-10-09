@@ -1,178 +1,220 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { sslcommerzBaseUrl, sslcommerzConfig } from "@/lib/sslcommerz";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const clean = (value, fallback = "") => {
+  const result = String(value ?? "").trim();
+  return result || fallback;
+};
 
 export async function POST(request) {
   try {
     const session = await auth();
+    const userId = session?.user?.id;
 
-    if (!session?.user?.id) {
+    if (!userId) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Please login first.",
-        },
+        { success: false, message: "Please log in first." },
         { status: 401 },
       );
     }
 
-    const body = await request.json();
-    const orderId = body?.orderId;
+    const body = await request.json().catch(() => ({}));
+    const orderId = clean(body.orderId);
 
     if (!orderId) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Order ID is required.",
-        },
+        { success: false, message: "Order ID is required." },
         { status: 400 },
       );
     }
 
-    if (
-      !process.env.SSLCOMMERZ_STORE_ID ||
-      !process.env.SSLCOMMERZ_STORE_PASSWORD
-    ) {
+    const storeId = clean(process.env.SSLCOMMERZ_STORE_ID);
+    const storePassword = clean(process.env.SSLCOMMERZ_STORE_PASSWORD);
+    const isLive = process.env.SSLCOMMERZ_IS_LIVE === "true";
+
+    console.log("SSLCommerz config:", {
+      storeIdPresent: Boolean(storeId),
+      passwordPresent: Boolean(storePassword),
+      liveMode: isLive,
+    });
+
+    if (!storeId || !storePassword) {
       return NextResponse.json(
         {
           success: false,
-          message: "SSLCommerz configuration is missing.",
+          message: "SSLCommerz credentials are missing in .env.local.",
         },
         { status: 500 },
       );
     }
 
     const order = await prisma.order.findFirst({
-      where: {
-        id: orderId,
-        userId: session.user.id,
-      },
+      where: { id: orderId, userId },
       include: {
-        payment: true,
-        deliveryAddress: true,
         user: true,
+        deliveryAddress: true,
+        items: true,
       },
     });
 
     if (!order) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Order not found.",
-        },
+        { success: false, message: "Order not found." },
         { status: 404 },
       );
     }
 
-    if (order.status === "CANCELLED") {
+    if (["CANCELLED", "CANCELED"].includes(clean(order.status).toUpperCase())) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Cancelled orders cannot be paid.",
-        },
+        { success: false, message: "This order is cancelled." },
         { status: 400 },
       );
     }
 
-    if (order.payment?.status === "PAID") {
+    const amount = Number(order.totalAmount ?? order.total ?? order.amount);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "This order has already been paid.",
-        },
+        { success: false, message: "Invalid order amount." },
         { status: 400 },
       );
     }
 
-    const transactionId = `ST-${order.orderNumber}-${Date.now()}`;
+    const currency = clean(order.currency, "BDT").toUpperCase();
 
-    await prisma.payment.upsert({
-      where: {
-        orderId: order.id,
-      },
-      update: {
-        method: "SSLCOMMERZ",
-        status: "PENDING",
-        transactionId,
-        amount: order.total,
-        paidAt: null,
-      },
-      create: {
-        orderId: order.id,
-        method: "SSLCOMMERZ",
-        status: "PENDING",
-        transactionId,
-        amount: order.total,
-      },
+    if (currency !== "BDT") {
+      return NextResponse.json(
+        { success: false, message: "Order currency must be BDT." },
+        { status: 400 },
+      );
+    }
+
+    const address = order.deliveryAddress ?? {};
+    const customerName = clean(order.user?.name, "Restaurant Customer");
+    const customerEmail = clean(order.user?.email, "customer@example.com");
+    const customerPhone = clean(
+      address.phone,
+      clean(order.user?.phone, "01700000000"),
+    );
+    const customerAddress = clean(
+      address.addressLine1,
+      clean(address.address, "Dhaka"),
+    );
+    const city = clean(address.city, "Dhaka");
+    const state = clean(address.state, city);
+    const postcode = clean(address.postalCode, "1200");
+    const country = clean(address.country, "Bangladesh");
+
+    const appUrl = clean(
+      process.env.NEXT_PUBLIC_APP_URL,
+      "http://localhost:3000",
+    ).replace(/\/+$/, "");
+
+    const gatewayBase = isLive
+      ? "https://securepay.sslcommerz.com"
+      : "https://sandbox-gw.sslcommerz.com";
+
+    const tranId = `ST-${order.id}-${Date.now()}`.slice(0, 60);
+
+    const form = new URLSearchParams({
+      store_id: storeId,
+      store_passwd: storePassword,
+      total_amount: amount.toFixed(2),
+      currency: "BDT",
+      tran_id: tranId,
+
+      success_url: `${appUrl}/api/payments/sslcommerz/success`,
+      fail_url: `${appUrl}/api/payments/sslcommerz/fail`,
+      cancel_url: `${appUrl}/api/payments/sslcommerz/cancel`,
+      ipn_url: `${appUrl}/api/payments/sslcommerz/ipn`,
+
+      product_name: `ST Restaurant Order ${order.id}`,
+      product_category: "Restaurant",
+      product_profile: "general",
+
+      cus_name: customerName,
+      cus_email: customerEmail,
+      cus_phone: customerPhone,
+      cus_add1: customerAddress,
+      cus_add2: city,
+      cus_city: city,
+      cus_state: state,
+      cus_postcode: postcode,
+      cus_country: country,
+
+      shipping_method: "YES",
+      num_of_item: String(Math.max(order.items?.length ?? 1, 1)),
+      ship_name: customerName,
+      ship_add1: customerAddress,
+      ship_add2: city,
+      ship_city: city,
+      ship_state: state,
+      ship_postcode: postcode,
+      ship_country: country,
     });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    console.log("SSLCommerz request:", {
+      endpoint: `${gatewayBase}/gwprocess/v4/api.php`,
+      orderId: order.id,
+      amount: amount.toFixed(2),
+      postcodePresent: Boolean(form.get("ship_postcode")),
+    });
 
-    const params = new URLSearchParams();
-
-    params.set("store_id", sslcommerzConfig.store_id);
-    params.set("store_passwd", sslcommerzConfig.store_passwd);
-    params.set("total_amount", String(order.total));
-    params.set("currency", "BDT");
-    params.set("tran_id", transactionId);
-
-    params.set("success_url", `${appUrl}/api/payments/sslcommerz/success`);
-
-    params.set("fail_url", `${appUrl}/api/payments/sslcommerz/fail`);
-
-    params.set("cancel_url", `${appUrl}/api/payments/sslcommerz/cancel`);
-
-    params.set("ipn_url", `${appUrl}/api/payments/sslcommerz/ipn`);
-
-    params.set(
-      "cus_name",
-      order.deliveryAddress?.fullName || order.user.name || "ST Customer",
-    );
-    params.set("cus_email", order.user.email || "");
-    params.set(
-      "cus_phone",
-      order.deliveryAddress?.phone || order.user.phone || "",
-    );
-
-    params.set("cus_add1", order.deliveryAddress?.address || "N/A");
-
-    params.set("cus_city", order.deliveryAddress?.city || "Dhaka");
-
-    params.set("shipping_method", "YES");
-    params.set("ship_name", order.deliveryAddress?.fullName || "Customer");
-    params.set("ship_add1", order.deliveryAddress?.address || "N/A");
-    params.set("ship_city", order.deliveryAddress?.city || "Dhaka");
-
-    params.set("product_name", `ST Restaurant Order ${order.orderNumber}`);
-    params.set("product_category", "Food");
-    params.set("product_profile", "general");
-
-    // Server-side mapping
-    params.set("value_a", order.id);
-    params.set("value_b", session.user.id);
-
-    const response = await fetch(`${sslcommerzBaseUrl}/gwprocess/v4/api.php`, {
+    const gatewayResponse = await fetch(`${gatewayBase}/gwprocess/v4/api.php`, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
       },
-      body: params.toString(),
+      body: form.toString(),
       cache: "no-store",
     });
 
-    const result = await response.json();
+    const raw = await gatewayResponse.text();
+    let result;
 
-    if (!response.ok || !result?.GatewayPageURL) {
-      console.error("SSL RETRY RESPONSE:", result);
+    try {
+      result = JSON.parse(raw);
+    } catch {
+      console.error("SSLCommerz non-JSON response:", {
+        httpStatus: gatewayResponse.status,
+        responsePreview: raw.slice(0, 300),
+      });
+
+      return NextResponse.json(
+        {
+          success: false,
+          message: "SSLCommerz returned an invalid response.",
+        },
+        { status: 502 },
+      );
+    }
+
+    const gatewayUrl = clean(result?.GatewayPageURL);
+
+    if (
+      !gatewayResponse.ok ||
+      result?.status !== "SUCCESS" ||
+      !gatewayUrl.startsWith("https://")
+    ) {
+      console.error("SSLCommerz rejected payment:", {
+        httpStatus: gatewayResponse.status,
+        status: result?.status,
+        failedreason: result?.failedreason,
+        storeName: result?.store_name,
+        sessionkeyPresent: Boolean(result?.sessionkey),
+      });
 
       return NextResponse.json(
         {
           success: false,
           message:
-            result?.failedreason || "Unable to start SSLCommerz payment.",
+            clean(result?.failedreason) ||
+            "SSLCommerz payment initialization failed.",
         },
         { status: 502 },
       );
@@ -180,20 +222,30 @@ export async function POST(request) {
 
     return NextResponse.json({
       success: true,
+      message: "Payment session created.",
       data: {
-        gatewayUrl: result.GatewayPageURL,
-        transactionId,
+        gatewayUrl,
+        transactionId: tranId,
       },
     });
   } catch (error) {
-    console.error("SSL RETRY ERROR:", error);
+    console.error("SSLCommerz route error:", {
+      name: error?.name,
+      message: error?.message,
+    });
 
     return NextResponse.json(
       {
         success: false,
-        message: error?.message || "Unable to retry payment.",
+        message: "Unable to initialize payment. Check the server terminal.",
       },
       { status: 500 },
     );
   }
 }
+console.log("SSLCommerz safe diagnostic:", {
+  storeIdPresent: Boolean(process.env.SSLCOMMERZ_STORE_ID),
+  storeIdMatches: process.env.SSLCOMMERZ_STORE_ID === "steto6ac8f9550d180",
+  passwordPresent: Boolean(process.env.SSLCOMMERZ_STORE_PASSWORD),
+  isLive: process.env.SSLCOMMERZ_IS_LIVE === "true",
+});
